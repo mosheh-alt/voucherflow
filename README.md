@@ -34,6 +34,10 @@ Run each update file in `supabase/` once, in number order, the same way as the s
 - `002_account_suggestions.sql` — donor account suggestions + AAC barcode rule and history
 - `003_companies_and_barcode_rules.sql` — the 26 voucher companies and their barcode rules
 - `004_voucher_date_rules.sql` — issue-date validity (AAC: 6 months) and urgent warnings
+- `005_ai_reading.sql` — AI reading: stored AI guesses, on/off switch, accuracy figures
+
+### 1c. AI reading function
+Supabase → Edge Functions: secret `ANTHROPIC_API_KEY`, and a function `read-voucher` with the code in `supabase/functions/read-voucher/index.ts`.
 
 ### 2. Website (Cloudflare Pages)
 1. Cloudflare → **Workers & Pages → Create → Pages → Import an existing Git repository**.

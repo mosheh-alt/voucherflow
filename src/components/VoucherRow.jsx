@@ -85,6 +85,10 @@ const VoucherRow = forwardRef(function VoucherRow(
     setD((x) => (x.donor_account ? x : { ...x, donor_account: s.donor_account }))
   }
 
+  // Boxes the AI filled in and nobody has changed yet are shown in a different colour.
+  const aiFilled = v.status === 'pending' ? (v.ai_data?.filled || []) : []
+  const aiCls = (field) => (aiFilled.includes(field) && String(d[field] ?? '') === String(v[field] ?? '') ? ' ai' : '')
+
   // Live check of the date on the voucher, so problems show before validating.
   const dateCheck = (() => {
     if (!d.expiry_date || !EDITABLE.includes(v.status)) return null
@@ -176,13 +180,13 @@ const VoucherRow = forwardRef(function VoucherRow(
       </td>
       <td>
         {editable
-          ? <input ref={numberRef} className="cell mono" value={d.voucher_number} onChange={(e) => set('voucher_number', e.target.value)} onBlur={saveField} onKeyDown={onKey} placeholder="Voucher no." />
+          ? <input ref={numberRef} className={"cell mono" + aiCls("voucher_number")} value={d.voucher_number} onChange={(e) => set('voucher_number', e.target.value)} onBlur={saveField} onKeyDown={onKey} placeholder="Voucher no." />
           : <span className="mono">{v.voucher_number || '—'}</span>}
       </td>
       <td>
         {editable ? (
           <>
-            <input ref={accountRef} className={`cell mono acc ${suggested && d.donor_account === suggested.account ? 'suggested' : ''}`} value={d.donor_account}
+            <input ref={accountRef} className={`cell mono acc${aiCls("donor_account")} ${suggested && d.donor_account === suggested.account ? 'suggested' : ''}`} value={d.donor_account}
               onChange={(e) => set('donor_account', e.target.value)} onBlur={saveField} onKeyDown={onKey} placeholder="Account no." />
             {suggested && d.donor_account === suggested.account && (
               <div className="muted small" title={`From voucher ${suggested.from}`}>suggested · check it</div>
@@ -192,7 +196,7 @@ const VoucherRow = forwardRef(function VoucherRow(
       </td>
       <td>
         {editable ? (
-          <select ref={companyRef} className="cell" value={d.company_id} onChange={(e) => set('company_id', e.target.value)} onBlur={saveField} onKeyDown={onKey}>
+          <select ref={companyRef} className={"cell" + aiCls("company_id")} value={d.company_id} onChange={(e) => set('company_id', e.target.value)} onBlur={saveField} onKeyDown={onKey}>
             <option value="">— company —</option>
             {companies.filter((c) => c.active !== false || c.id === d.company_id).map((c) => (
               <option key={c.id} value={c.id}>{c.name}{c.active === false ? ' (inactive)' : ''}</option>
@@ -202,12 +206,12 @@ const VoucherRow = forwardRef(function VoucherRow(
       </td>
       <td className="num">
         {editable
-          ? <input ref={amountRef} className="cell num" type="number" step="0.01" min="0" inputMode="decimal" value={d.amount} onChange={(e) => set('amount', e.target.value)} onBlur={saveField} onKeyDown={onKey} placeholder="£" />
+          ? <input ref={amountRef} className={"cell num" + aiCls("amount")} type="number" step="0.01" min="0" inputMode="decimal" value={d.amount} onChange={(e) => set('amount', e.target.value)} onBlur={saveField} onKeyDown={onKey} placeholder="£" />
           : (v.amount != null ? `£${Number(v.amount).toFixed(2)}` : '—')}
       </td>
       <td>
         {editable
-          ? <input className="cell" type="date" value={d.expiry_date} onChange={(e) => set('expiry_date', e.target.value)} onBlur={saveField} onKeyDown={onKey} />
+          ? <input className={"cell" + aiCls("expiry_date")} type="date" value={d.expiry_date} onChange={(e) => set('expiry_date', e.target.value)} onBlur={saveField} onKeyDown={onKey} />
           : date(v.expiry_date)}
         {dateCheck && <div className={`small ${dateCheck.kind}`}>{dateCheck.text}</div>}
       </td>
@@ -222,6 +226,7 @@ const VoucherRow = forwardRef(function VoucherRow(
           )}
           {v.possible_duplicate && <span className="flag bad">Duplicate?</span>}
           {v.prefilled && v.status === 'pending' && <span className="flag info">Prefilled</span>}
+          {aiFilled.length > 0 && <span className="flag ai-flag" title="Filled in by AI — please check against the picture">AI – check</span>}
           {v.urgent && v.status === 'valid' && <span className="flag bad">Urgent – send by {date(v.send_by)}</span>}
         </div>
         {problem && <div className="bad-text small">{problem}</div>}

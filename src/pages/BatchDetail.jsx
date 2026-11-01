@@ -6,6 +6,7 @@ import { interpretBarcode } from '../lib/rules.js'
 import { collectorLabel, date, money } from '../lib/format.js'
 import { takePendingFiles } from '../lib/pending.js'
 import { reextract, reextractPatch } from '../lib/reextract.js'
+import { aiEnabled, aiReadMany } from '../lib/ai.js'
 import { useAuth } from '../auth.jsx'
 import { ErrorBox, Stat, StatusPill } from '../components.jsx'
 import VoucherRow from '../components/VoucherRow.jsx'
@@ -25,6 +26,7 @@ export default function BatchDetail() {
   const [progress, setProgress] = useState(null) // { done, total, current }
   const [dragging, setDragging] = useState(false)
   const [recheckOpen, setRecheckOpen] = useState(false)
+  const [aiOn, setAiOn] = useState(false)
   const [zoomedId, setZoomedId] = useState(null) // voucher whose picture is shown enlarged under its row
   const rowRefs = useRef({})
   const fileInput = useRef(null)
@@ -58,6 +60,29 @@ export default function BatchDetail() {
     })
   }, [load])
 
+  useEffect(() => { aiEnabled().then(setAiOn).catch(() => setAiOn(false)) }, [])
+
+  // Lets the AI fill empty boxes on the given vouchers (a few at a time).
+  async function runAi(items, label = 'AI reading') {
+    if (!items.length) return { updated: 0, failures: [] }
+    setProgress({ done: 0, total: items.length, current: '', label })
+    const result = await aiReadMany(items, companies, (d, t) => setProgress({ done: Math.min(d, t - 1), total: t, current: '', label }))
+    setProgress(null)
+    return result
+  }
+
+  async function aiReadPending() {
+    setRecheckOpen(false)
+    const todo = vouchers.filter((v) => v.status === 'pending' &&
+      (!v.company_id || !v.voucher_number || !v.donor_account || v.amount == null || !v.expiry_date))
+    if (!todo.length) { setError('No pending vouchers with empty boxes.'); return }
+    setError(null)
+    const { updated, failures } = await runAi(todo.map((voucher) => ({ voucher })))
+    setError(`AI reading finished: ${updated} of ${todo.length} voucher(s) read.` +
+      (failures.length ? `\n${failures.length} failed — first error: ${failures[0]}` : ''))
+    await load()
+  }
+
   const companyName = useMemo(() => Object.fromEntries(companies.map((c) => [c.id, c.name])), [companies])
 
   const summary = useMemo(() => {
@@ -86,6 +111,7 @@ export default function BatchDetail() {
     setProgress({ done: 0, total: files.length, current: '' })
     const seen = new Set(vouchers.map((v) => v.voucher_number).filter(Boolean))
     const failures = []
+    const aiItems = []
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i]
@@ -113,7 +139,7 @@ export default function BatchDetail() {
         const { error: upErr } = await supabase.storage.from('vouchers').upload(path, file, { contentType: file.type })
         if (upErr) throw upErr
 
-        const { error: insErr } = await supabase.from('vouchers').insert({
+        const { data: inserted, error: insErr } = await supabase.from('vouchers').insert({
           batch_id: batch.id,
           collector_id: batch.collector_id,
           collector_reference: batch.collector_reference,
@@ -128,14 +154,26 @@ export default function BatchDetail() {
           expiry_date: fields.expiry_date,
           prefilled,
           possible_duplicate: duplicate,
-        })
+        }).select().single()
         if (insErr) throw insErr
+        aiItems.push({ voucher: inserted, blob: file })
       } catch (e) {
         failures.push(`${file.name}: ${e.message || e}`)
       }
     }
     setProgress(null)
-    if (failures.length) setError(`${failures.length} file(s) failed:\n${failures.join('\n')}`)
+    // Then the AI fills what the barcode couldn't (only when switched on).
+    let aiNote = ''
+    const aiNow = aiOn || (await aiEnabled().catch(() => false))
+    if (aiNow && aiItems.length) {
+      await load()
+      const { updated, failures: aiFail } = await runAi(aiItems)
+      aiNote = `AI read ${updated} of ${aiItems.length} voucher(s).` + (aiFail.length ? ` ${aiFail.length} failed — first error: ${aiFail[0]}` : '')
+    }
+    const msgs = []
+    if (failures.length) msgs.push(`${failures.length} file(s) failed:\n${failures.join('\n')}`)
+    if (aiNote) msgs.push(aiNote)
+    if (msgs.length) setError(msgs.join('\n'))
     await load()
   }
 
@@ -230,6 +268,12 @@ export default function BatchDetail() {
                     <strong>All pending vouchers</strong>
                     <span className="muted small">Re-reads every image; barcode data replaces current values</span>
                   </button>
+                  {aiOn && (
+                    <button onClick={aiReadPending}>
+                      <strong>Read with AI</strong>
+                      <span className="muted small">AI fills empty boxes on pending vouchers (you still check each one)</span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>

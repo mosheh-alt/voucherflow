@@ -235,3 +235,7 @@ input.cell[type="date"] { width: 150px; }
 input.cell.acc { width: 110px; }
 input.cell.suggested { background: var(--info-bg); border-color: #9cc3e2; }
 .warn-text { color: var(--warn); font-weight: 600; }
+
+/* Boxes filled in by AI, not yet checked */
+.cell.ai { background: #f3ecff; border-color: #c4a8f0; }
+.flag.ai-flag { background: #f3ecff; color: #5b2ea6; }

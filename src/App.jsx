@@ -10,6 +10,7 @@ import Collectors from './pages/Collectors.jsx'
 import Companies from './pages/Companies.jsx'
 import Users from './pages/Users.jsx'
 import Reports from './pages/Reports.jsx'
+import AiReading from './pages/AiReading.jsx'
 
 export default function App() {
   const { session, profile, loading, can, signOut } = useAuth()
@@ -39,6 +40,7 @@ export default function App() {
           <NavLink to="/reports">Reports</NavLink>
           <div className="nav-group">Settings</div>
           <NavLink to="/companies">Companies</NavLink>
+          <NavLink to="/ai">AI reading</NavLink>
           {can('admin') && <NavLink to="/users">Users</NavLink>}
         </nav>
         <div className="me">
@@ -57,6 +59,7 @@ export default function App() {
           <Route path="/companies" element={<Companies />} />
           <Route path="/users" element={can('admin') ? <Users /> : <Navigate to="/" />} />
           <Route path="/reports" element={<Reports />} />
+          <Route path="/ai" element={<AiReading />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </main>
