@@ -8,7 +8,7 @@ import { takePendingFiles } from '../lib/pending.js'
 import { reextract, reextractPatch } from '../lib/reextract.js'
 import { useAuth } from '../auth.jsx'
 import { ErrorBox, Stat, StatusPill } from '../components.jsx'
-import VoucherEditor from '../components/VoucherEditor.jsx'
+import VoucherRow from '../components/VoucherRow.jsx'
 
 const ACCEPTED = ['image/jpeg', 'image/png', 'image/webp']
 
@@ -25,7 +25,8 @@ export default function BatchDetail() {
   const [progress, setProgress] = useState(null) // { done, total, current }
   const [dragging, setDragging] = useState(false)
   const [recheckOpen, setRecheckOpen] = useState(false)
-  const [quickId, setQuickId] = useState(null) // voucher open in the quick-entry window
+  const [zoomed, setZoomed] = useState(null) // voucher whose picture is enlarged
+  const rowRefs = useRef({})
   const fileInput = useRef(null)
 
   const load = useCallback(async () => {
@@ -173,17 +174,31 @@ export default function BatchDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batch?.id, companiesLoaded])
 
-  // Close the quick-entry window with Esc.
+  // Close the enlarged picture with Esc.
   useEffect(() => {
-    if (!quickId) return
-    const onKey = (e) => { if (e.key === 'Escape') setQuickId(null) }
+    if (!zoomed) return
+    const onKey = (e) => { if (e.key === 'Escape') setZoomed(null) }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [quickId])
+  }, [zoomed])
 
-  function openQuick(voucherId) {
-    const first = voucherId || vouchers.find((v) => v.status === 'pending')?.id || vouchers[0]?.id
-    if (first) setQuickId(first)
+  const companyById = useMemo(() => Object.fromEntries(companies.map((c) => [c.id, c])), [companies])
+
+  function onRowUpdated(updated) {
+    setVouchers((list) => list.map((x) => (x.id === updated.id ? updated : x)))
+  }
+
+  // After a voucher is validated, move to the next pending one below it (or the first one above).
+  function focusNextPending(fromId) {
+    const i = vouchers.findIndex((x) => x.id === fromId)
+    const order = [...vouchers.slice(i + 1), ...vouchers.slice(0, Math.max(i, 0))]
+    const next = order.find((x) => x.status === 'pending' && x.id !== fromId)
+    if (next) setTimeout(() => rowRefs.current[next.id]?.focus(), 30)
+  }
+
+  function startValidating() {
+    const first = vouchers.find((x) => x.status === 'pending')
+    if (first) rowRefs.current[first.id]?.focus()
   }
 
   async function setBatchStatus(status) {
@@ -225,8 +240,8 @@ export default function BatchDetail() {
             </div>
           )}
           {summary.pending > 0 && (
-            <button className="btn primary" onClick={() => openQuick()}>
-              Validate ({summary.pending})
+            <button className="btn primary" onClick={startValidating}>
+              Start entering ({summary.pending} to do)
             </button>
           )}
           {batch.status === 'open' && summary.total > 0 && summary.pending === 0 && (
@@ -287,62 +302,50 @@ export default function BatchDetail() {
 
       <ErrorBox error={error} />
 
-      <table className="table">
-        <thead>
-          <tr>
-            <th></th><th>Voucher no.</th><th>Company</th><th className="num">Amount</th>
-            <th>Expiry</th><th>Status</th><th>Flags</th>
-          </tr>
-        </thead>
-        <tbody>
-          {vouchers.map((v) => (
-            <tr key={v.id} className="clickable" onClick={() => openQuick(v.id)}>
-              <td>{thumbs[v.image_path] ? <img className="thumb" src={thumbs[v.image_path]} alt="" /> : <div className="thumb" />}</td>
-              <td className="mono">{v.voucher_number || <span className="muted">—</span>}</td>
-              <td>{companyName[v.company_id] || <span className="muted">—</span>}</td>
-              <td className="num">{money(v.amount)}</td>
-              <td>{date(v.expiry_date)}</td>
-              <td><StatusPill status={v.status} />{v.status_reason && <div className="muted small">{v.status_reason}</div>}</td>
-              <td className="flags">
-                {!v.barcode_read && <span className="flag warn">No barcode</span>}
-                {v.possible_duplicate && <span className="flag bad">Duplicate?</span>}
-                {v.prefilled && v.status === 'pending' && <span className="flag info">Prefilled</span>}
-              </td>
+      {vouchers.length > 0 && (
+        <p className="muted small">
+          Type straight into the rows. Click a picture to enlarge it. Press <strong>Enter</strong> (or ✓) to validate a voucher and jump to the next one.
+        </p>
+      )}
+      <div className="table-wrap">
+        <table className="table entry-table">
+          <thead>
+            <tr>
+              <th>Picture</th><th>Voucher no.</th><th>Company</th><th className="num">Amount</th>
+              <th>Expiry</th><th>Status</th><th>Flags</th><th></th>
             </tr>
-          ))}
-          {vouchers.length === 0 && (
-            <tr><td colSpan={7} className="muted">No vouchers yet. Upload the scanned images above.</td></tr>
-          )}
-        </tbody>
-      </table>
-      {quickId && (() => {
-        const qi = vouchers.findIndex((v) => v.id === quickId)
-        const done = vouchers.filter((v) => v.status !== 'pending').length
-        return (
-          <div className="quick-overlay">
-            <div className="quick-head">
-              <div>
-                <strong>Batch #{batch.batch_no}</strong> · {batch.collector_reference} · voucher {qi + 1} of {vouchers.length}
-                <span className="muted"> · {done} validated, {summary.pending} to go</span>
-              </div>
-              <div className="row gap0">
-                <a className="btn" href={`/batches/${batch.id}/validate?v=${quickId}`} onClick={(e) => { e.preventDefault(); navigate(`/batches/${batch.id}/validate?v=${quickId}`) }}>Full page</a>
-                <button className="btn" onClick={() => setQuickId(null)}>Close (Esc)</button>
-              </div>
-            </div>
-            <VoucherEditor
-              batch={batch}
-              vouchers={vouchers}
-              companies={companies}
-              currentId={quickId}
-              imageUrls={thumbs}
-              onGo={setQuickId}
-              onSaved={setVouchers}
-              onFinished={() => { setQuickId(null); setError('All vouchers in this batch are validated.') }}
-            />
+          </thead>
+          <tbody>
+            {vouchers.map((v) => (
+              <VoucherRow
+                key={v.id}
+                ref={(el) => { rowRefs.current[v.id] = el }}
+                v={v}
+                batch={batch}
+                companies={companies}
+                companyById={companyById}
+                thumb={thumbs[v.image_path]}
+                onZoom={setZoomed}
+                onUpdated={onRowUpdated}
+                onNext={focusNextPending}
+                canEdit={can('admin', 'batch_entry', 'reconciler')}
+              />
+            ))}
+            {vouchers.length === 0 && (
+              <tr><td colSpan={8} className="muted">No vouchers yet. Upload the scanned images above.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {zoomed && (
+        <div className="lightbox" onClick={() => setZoomed(null)}>
+          <img src={thumbs[zoomed.image_path]} alt="Voucher" />
+          <div className="lightbox-caption">
+            {zoomed.voucher_number || 'No voucher number'} · click anywhere or press Esc to close
           </div>
-        )
-      })()}
+        </div>
+      )}
     </>
   )
 }
