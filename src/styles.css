@@ -280,3 +280,4 @@ input.cell.suggested { background: var(--info-bg); border-color: #9cc3e2; }
 .actions.wrap { flex-wrap: wrap; }
 .removed-box { margin-top: 14px; }
 @media (max-width: 900px) { .dup-grid { grid-template-columns: 1fr; } }
+.remove-btn { padding: 6px 10px; margin-left: 4px; color: var(--bad); border-color: #f0c3bf; } .remove-btn:hover { background: var(--bad-bg); }

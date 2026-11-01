@@ -36,7 +36,7 @@ function clean(d) {
 // One voucher row on the batch page, with the data entered directly in the row.
 // Leaving a box saves it; Enter (or ✓) validates the voucher and jumps to the next one.
 const VoucherRow = forwardRef(function VoucherRow(
-  { v, batch, companies, companyById, thumb, expanded, onToggleImage, onUpdated, onNext, canEdit, selected, onSelect, onShowDuplicate },
+  { v, batch, companies, companyById, thumb, expanded, onToggleImage, onUpdated, onNext, canEdit, selected, onSelect, onShowDuplicate, onRemove },
   ref
 ) {
   const { session } = useAuth()
@@ -310,6 +310,9 @@ const VoucherRow = forwardRef(function VoucherRow(
           <button type="button" className="btn ok-btn" disabled={saving} onClick={validate} title="Validate (Enter)">
             {saving ? '…' : '✓'}
           </button>
+        )}
+        {editable && onRemove && (
+          <button type="button" className="btn remove-btn" onClick={() => onRemove(v.id)} title="Remove this voucher from the batch">✕</button>
         )}
       </td>
     </tr>

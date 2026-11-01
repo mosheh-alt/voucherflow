@@ -9,17 +9,17 @@ import { reextract, reextractPatch } from '../lib/reextract.js'
 import { aiEnabled, aiReadMany } from '../lib/ai.js'
 import { suggestCompany, historyPatch } from '../lib/companyGuess.js'
 import { useAuth } from '../auth.jsx'
-import { ErrorBox, Stat, StatusPill } from '../components.jsx'
+import { ErrorBox, Modal, Stat, StatusPill } from '../components.jsx'
 import VoucherRow from '../components/VoucherRow.jsx'
 import DuplicateCompare from '../components/DuplicateCompare.jsx'
-import { duplicateFields, findDuplicate, restoreVoucher } from '../lib/duplicates.js'
+import { REMOVABLE, duplicateFields, findDuplicate, removeVoucher, restoreVoucher } from '../lib/duplicates.js'
 
 const ACCEPTED = ['image/jpeg', 'image/png', 'image/webp']
 
 export default function BatchDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { can } = useAuth()
+  const { can, session } = useAuth()
   const [batch, setBatch] = useState(null)
   const [vouchers, setVouchers] = useState([])
   const [companies, setCompanies] = useState([])
@@ -35,6 +35,8 @@ export default function BatchDetail() {
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [bulkCompany, setBulkCompany] = useState('')
   const [dupFor, setDupFor] = useState(null) // voucher whose duplicate comparison is open
+  const [removeIds, setRemoveIds] = useState(null) // vouchers waiting for "remove" confirmation
+  const [removeReason, setRemoveReason] = useState('')
   const [removed, setRemoved] = useState([])
   const [showRemoved, setShowRemoved] = useState(false)
   const fileInput = useRef(null)
@@ -241,6 +243,22 @@ export default function BatchDetail() {
   }
 
   // Sets the same company on all selected vouchers that can still be edited.
+  // Removes vouchers from the batch (kept in history; an admin can restore them).
+  async function confirmRemove() {
+    const ids = vouchers.filter((x) => removeIds.includes(x.id) && REMOVABLE.includes(x.status)).map((x) => x.id)
+    const skipped = removeIds.length - ids.length
+    try {
+      for (const id of ids) await removeVoucher(id, removeReason.trim() || 'Removed by user', session.user.id)
+      setError(`${ids.length} voucher(s) removed.` + (skipped ? ` ${skipped} already sent and left in place.` : '') + ' They can be restored from "Show removed vouchers" at the bottom.')
+    } catch (e) {
+      setError(e)
+    }
+    setRemoveIds(null)
+    setRemoveReason('')
+    setSelectedIds(new Set())
+    await load()
+  }
+
   async function setCompanyForSelected() {
     const ids = vouchers.filter((x) => selectedIds.has(x.id) && ['pending', 'valid', 'post_dated', 'not_valid'].includes(x.status)).map((x) => x.id)
     if (!ids.length || !bulkCompany) return
@@ -381,6 +399,7 @@ export default function BatchDetail() {
             </select>
           </label>
           <button className="btn primary" disabled={!bulkCompany} onClick={setCompanyForSelected}>Apply to selected</button>
+          <button className="btn danger" onClick={() => setRemoveIds([...selectedIds])}>Remove selected…</button>
           <button className="btn" onClick={() => setSelectedIds(new Set())}>Clear selection</button>
         </div>
       )}
@@ -412,6 +431,7 @@ export default function BatchDetail() {
                 canEdit={can('admin', 'batch_entry', 'reconciler')}
                 selected={selectedIds.has(v.id)}
                 onShowDuplicate={setDupFor}
+                onRemove={(id) => setRemoveIds([id])}
                 onSelect={(id) => setSelectedIds((cur) => { const n = new Set(cur); if (n.has(id)) n.delete(id); else n.add(id); return n })}
               />
             ))}
@@ -457,6 +477,26 @@ export default function BatchDetail() {
           onClose={() => setDupFor(null)}
           onChanged={async (msg) => { setDupFor(null); setError(msg); await load() }}
         />
+      )}
+      {removeIds && (
+        <Modal title={removeIds.length === 1 ? 'Remove voucher' : `Remove ${removeIds.length} vouchers`} onClose={() => setRemoveIds(null)}>
+          <p>The voucher{removeIds.length === 1 ? '' : 's'} will disappear from the batch, the pool, totals and reports.
+            {' '}{removeIds.length === 1 ? 'It is' : 'They are'} kept in the history and an admin can restore {removeIds.length === 1 ? 'it' : 'them'}.</p>
+          <label>Reason
+            <select value={removeReason} onChange={(e) => setRemoveReason(e.target.value)}>
+              <option value="">— choose or leave blank —</option>
+              <option>Blank or unreadable scan</option>
+              <option>Scanned twice</option>
+              <option>Not a voucher</option>
+              <option>Returned to collector</option>
+              <option>Wrong batch</option>
+            </select>
+          </label>
+          <div className="actions">
+            <button className="btn" onClick={() => setRemoveIds(null)}>Cancel</button>
+            <button className="btn danger" onClick={confirmRemove}>Remove</button>
+          </div>
+        </Modal>
       )}
     </>
   )
