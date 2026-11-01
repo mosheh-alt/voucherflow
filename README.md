@@ -32,7 +32,7 @@ reconciliation, collector PDF emails, scanner connection.
 ### 1b. Database updates
 Run each update file in `supabase/` once, in number order, the same way as the setup script:
 - `002_account_suggestions.sql` — donor account suggestions + AAC barcode rule and history
-- `003_companies_and_barcode_rules.sql` — the 25 voucher companies and their barcode rules
+- `003_companies_and_barcode_rules.sql` — the 26 voucher companies and their barcode rules
 
 ### 2. Website (Cloudflare Pages)
 1. Cloudflare → **Workers & Pages → Create → Pages → Import an existing Git repository**.

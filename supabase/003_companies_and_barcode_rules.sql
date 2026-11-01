@@ -1,7 +1,8 @@
 -- =====================================================================
 -- VoucherFlow — update 3: voucher companies and their barcode rules
 -- Worked out from the London voucher sheet (69,303 barcodes analysed).
--- 25 companies (The Simcha Trust, Keren Shmuel and Ichud Talmidey Yesodeh Hatorah removed).
+-- 26 companies, including Yesamach Levav Trust (The Simcha Trust, Keren Shmuel and Ichud Talmidey Yesodeh Hatorah removed;
+-- Best kept separate from AAC).
 -- Paste into Supabase → SQL Editor → new snippet → Run. Safe to run again.
 -- Existing companies with the same name get their barcode rule updated;
 -- missing ones are added. Companies without a rule have plain-number vouchers.
@@ -27,6 +28,7 @@ BAT(?<tenths>\d{4})0{5}(?<voucher>\d{6})(?<account>\d{3})\d{4}'),
   ('C.M.Z. LTD', 'CM[SNP](?=\d{16}$)\d{4}0*(?<voucher>[1-9]\d*)(?<pence>\d{5})'),
   ('Best', 'BEST(?=\d{16}$)\d{4}0*(?<voucher>[1-9]\d*)(?<pence>\d{5})'),
   ('BCT', 'BCT\d{6}(?<voucher>\d{5,6})(?<pence>\d{5})'),
+  ('Yesamach Levav Trust', 'YLT(?<voucher>\d{7})(?:BL)?'),
   ('Smart Giving', '(?<voucher>VB-[A-Z]{3}-\d{3}-[A-Z]{3})'),
   ('Tevini', null),
   ('Kahal Chassidim Bobov', null),
