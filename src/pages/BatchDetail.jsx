@@ -8,6 +8,7 @@ import { takePendingFiles } from '../lib/pending.js'
 import { reextract, reextractPatch } from '../lib/reextract.js'
 import { useAuth } from '../auth.jsx'
 import { ErrorBox, Stat, StatusPill } from '../components.jsx'
+import VoucherEditor from '../components/VoucherEditor.jsx'
 
 const ACCEPTED = ['image/jpeg', 'image/png', 'image/webp']
 
@@ -24,6 +25,7 @@ export default function BatchDetail() {
   const [progress, setProgress] = useState(null) // { done, total, current }
   const [dragging, setDragging] = useState(false)
   const [recheckOpen, setRecheckOpen] = useState(false)
+  const [quickId, setQuickId] = useState(null) // voucher open in the quick-entry window
   const fileInput = useRef(null)
 
   const load = useCallback(async () => {
@@ -171,6 +173,19 @@ export default function BatchDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batch?.id, companiesLoaded])
 
+  // Close the quick-entry window with Esc.
+  useEffect(() => {
+    if (!quickId) return
+    const onKey = (e) => { if (e.key === 'Escape') setQuickId(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [quickId])
+
+  function openQuick(voucherId) {
+    const first = voucherId || vouchers.find((v) => v.status === 'pending')?.id || vouchers[0]?.id
+    if (first) setQuickId(first)
+  }
+
   async function setBatchStatus(status) {
     const { error } = await supabase.from('batches').update({ status }).eq('id', batch.id)
     if (error) setError(error)
@@ -210,7 +225,7 @@ export default function BatchDetail() {
             </div>
           )}
           {summary.pending > 0 && (
-            <button className="btn primary" onClick={() => navigate(`/batches/${batch.id}/validate`)}>
+            <button className="btn primary" onClick={() => openQuick()}>
               Validate ({summary.pending})
             </button>
           )}
@@ -281,7 +296,7 @@ export default function BatchDetail() {
         </thead>
         <tbody>
           {vouchers.map((v) => (
-            <tr key={v.id} className="clickable" onClick={() => navigate(`/batches/${batch.id}/validate?v=${v.id}`)}>
+            <tr key={v.id} className="clickable" onClick={() => openQuick(v.id)}>
               <td>{thumbs[v.image_path] ? <img className="thumb" src={thumbs[v.image_path]} alt="" /> : <div className="thumb" />}</td>
               <td className="mono">{v.voucher_number || <span className="muted">—</span>}</td>
               <td>{companyName[v.company_id] || <span className="muted">—</span>}</td>
@@ -300,6 +315,34 @@ export default function BatchDetail() {
           )}
         </tbody>
       </table>
+      {quickId && (() => {
+        const qi = vouchers.findIndex((v) => v.id === quickId)
+        const done = vouchers.filter((v) => v.status !== 'pending').length
+        return (
+          <div className="quick-overlay">
+            <div className="quick-head">
+              <div>
+                <strong>Batch #{batch.batch_no}</strong> · {batch.collector_reference} · voucher {qi + 1} of {vouchers.length}
+                <span className="muted"> · {done} validated, {summary.pending} to go</span>
+              </div>
+              <div className="row gap0">
+                <a className="btn" href={`/batches/${batch.id}/validate?v=${quickId}`} onClick={(e) => { e.preventDefault(); navigate(`/batches/${batch.id}/validate?v=${quickId}`) }}>Full page</a>
+                <button className="btn" onClick={() => setQuickId(null)}>Close (Esc)</button>
+              </div>
+            </div>
+            <VoucherEditor
+              batch={batch}
+              vouchers={vouchers}
+              companies={companies}
+              currentId={quickId}
+              imageUrls={thumbs}
+              onGo={setQuickId}
+              onSaved={setVouchers}
+              onFinished={() => { setQuickId(null); setError('All vouchers in this batch are validated.') }}
+            />
+          </div>
+        )
+      })()}
     </>
   )
 }
