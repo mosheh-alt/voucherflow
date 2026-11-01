@@ -17,7 +17,7 @@ export function compilePattern(pattern) {
   if (!src.startsWith('^')) src = '^' + src
   if (!src.endsWith('$')) src = src + '$'
   try {
-    return new RegExp(src)
+    return new RegExp(src, 'i') // letters match in upper or lower case (YLT / ylt)
   } catch {
     return null
   }
