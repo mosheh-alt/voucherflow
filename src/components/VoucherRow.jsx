@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 're
 import { supabase } from '../lib/supabase.js'
 import { decideStatus, missingFields } from '../lib/rules.js'
 import { date, today } from '../lib/format.js'
+import { parseHebrewDate } from '../lib/hebrewDate.js'
 import { useAuth } from '../auth.jsx'
 import { StatusPill } from '../components.jsx'
 
@@ -14,17 +15,21 @@ function draftFrom(v) {
     company_id: v.company_id || '',
     amount: v.amount ?? '',
     expiry_date: v.expiry_date || '',
+    date_text: v.date_text || '',
   }
 }
 
 function clean(d) {
-  return {
+  const out = {
     voucher_number: d.voucher_number.trim() || null,
     donor_account: d.donor_account.trim() || null,
     company_id: d.company_id || null,
     amount: d.amount === '' || d.amount === null ? null : Number(d.amount),
     expiry_date: d.expiry_date || null,
   }
+  // Only sent when a Hebrew (written) date is involved.
+  if (d.date_text) out.date_text = d.expiry_date ? d.date_text : null
+  return out
 }
 
 // One voucher row on the batch page, with the data entered directly in the row.
@@ -42,6 +47,9 @@ const VoucherRow = forwardRef(function VoucherRow(
   const amountRef = useRef(null)
   const accountRef = useRef(null)
   const [suggested, setSuggested] = useState(null) // { account, from, distance }
+  const [hebrewOpen, setHebrewOpen] = useState(false)
+  const [hebrewText, setHebrewText] = useState('')
+  const [hebrewProblem, setHebrewProblem] = useState(false)
   const editable = canEdit && EDITABLE.includes(v.status)
   // Vouchers still to do are shown large; once validated they shrink back (click to review).
   const pictureSize = v.status === 'pending'
@@ -60,7 +68,7 @@ const VoucherRow = forwardRef(function VoucherRow(
       return out
     })
     synced.current = fresh
-  }, [v.voucher_number, v.donor_account, v.company_id, v.amount, v.expiry_date, v.updated_at])
+  }, [v.voucher_number, v.donor_account, v.company_id, v.amount, v.expiry_date, v.date_text, v.updated_at])
 
   useImperativeHandle(ref, () => ({
     focus() {
@@ -100,7 +108,20 @@ const VoucherRow = forwardRef(function VoucherRow(
     return null
   })()
 
+  // A Hebrew date typed in is converted to the ordinary date; the Hebrew text is kept too.
+  function applyHebrew() {
+    if (!hebrewText.trim()) { setHebrewOpen(false); return }
+    const r = parseHebrewDate(hebrewText)
+    if (!r) { setHebrewProblem(true); return }
+    setD((x) => ({ ...x, expiry_date: r.iso, date_text: r.text }))
+    if (editable) update({ expiry_date: r.iso, date_text: r.text }).catch((e) => setProblem(e.message))
+    setHebrewOpen(false)
+    setHebrewProblem(false)
+    setHebrewText('')
+  }
+
   function set(field, value) {
+    if (field === 'expiry_date') setD((x) => ({ ...x, date_text: '' }))
     if (field === 'voucher_number' || field === 'company_id') setSuggested(null)
     setD((x) => ({ ...x, [field]: value }))
     setProblem(null)
@@ -117,6 +138,7 @@ const VoucherRow = forwardRef(function VoucherRow(
   async function saveField() {
     if (!editable) return
     const now = clean(d)
+    if (v.date_text && !d.date_text) now.date_text = null // a normal date replaced a Hebrew one
     const before = clean(draftFrom(v))
     if (JSON.stringify(now) === JSON.stringify(before)) return
     try {
@@ -131,6 +153,7 @@ const VoucherRow = forwardRef(function VoucherRow(
     e?.preventDefault()
     if (!editable || saving) return
     const values = clean(d)
+    if (v.date_text && !d.date_text) values.date_text = null
     const missing = missingFields(values)
     if (missing.length) {
       setProblem(`Missing: ${missing.join(', ')}`)
@@ -213,8 +236,24 @@ const VoucherRow = forwardRef(function VoucherRow(
       </td>
       <td>
         {editable
-          ? <input className={"cell" + aiCls("expiry_date")} type="date" value={d.expiry_date} onChange={(e) => set('expiry_date', e.target.value)} onBlur={saveField} onKeyDown={onKey} />
+          ? (
+            <>
+              <div className="date-wrap">
+                <input className={"cell" + aiCls("expiry_date")} type="date" value={d.expiry_date} onChange={(e) => set('expiry_date', e.target.value)} onBlur={saveField} onKeyDown={onKey} />
+                <button type="button" className="btn heb-btn" title="Type a Hebrew date" onClick={() => setHebrewOpen(!hebrewOpen)}>עב</button>
+              </div>
+              {hebrewOpen && (
+                <input className={`cell heb-input ${hebrewProblem ? 'bad' : ''}`} dir="auto" autoFocus value={hebrewText}
+                  placeholder='e.g. ט"ו חשון תשפ"ז / 15 Cheshvan 5787'
+                  onChange={(e) => { setHebrewText(e.target.value); setHebrewProblem(false) }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); applyHebrew() } if (e.key === 'Escape') setHebrewOpen(false) }}
+                  onBlur={() => { applyHebrew(); }} />
+              )}
+              {hebrewProblem && <div className="small bad-text">Couldn't read that Hebrew date</div>}
+            </>
+          )
           : date(v.expiry_date)}
+        {d.date_text && <div className="small muted" dir="auto">{d.date_text}</div>}
         {dateCheck && <div className={`small ${dateCheck.kind}`}>{dateCheck.text}</div>}
       </td>
       <td className="status-cell">

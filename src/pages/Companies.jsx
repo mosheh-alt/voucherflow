@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase.js'
 import { interpretBarcode, isValidPattern } from '../lib/rules.js'
 import { METHOD_LABELS, money, date } from '../lib/format.js'
+import { CLOSE_UPS } from '../lib/ai.js'
 import { useAuth } from '../auth.jsx'
 import { ErrorBox, Modal } from '../components.jsx'
 
 const EMPTY = {
   name: '', submission_method: 'physical', report_email: '', portal_url: '', address: '',
   barcode_pattern: '', amount_divisor: 100, expiry_format: 'YYMMDD', accepted: true, active: true, notes: '',
-  date_type: 'written', validity_months: '', urgent_days: 3,
+  date_type: 'written', validity_months: '', urgent_days: 3, ai_hints: '', ai_crop: [],
 }
 
 export default function Companies() {
@@ -85,6 +86,8 @@ function CompanyForm({ initial, onClose, onSaved }) {
       date_type: f.date_type === 'issue' ? 'issue' : 'written',
       validity_months: f.date_type === 'issue' && f.validity_months !== '' ? Number(f.validity_months) : null,
       urgent_days: f.urgent_days === '' ? 3 : Number(f.urgent_days),
+      ai_hints: f.ai_hints?.trim() || null,
+      ai_crop: f.ai_crop?.length ? f.ai_crop : null,
       notes: f.notes?.trim() || null,
     }
     const { error } = isNew
@@ -164,6 +167,25 @@ function CompanyForm({ initial, onClose, onSaved }) {
         </div>
         <label className="check"><input type="checkbox" checked={f.accepted} onChange={(e) => set('accepted', e.target.checked)} /> Vouchers from this company are accepted</label>
         <label className="check"><input type="checkbox" checked={f.active} onChange={(e) => set('active', e.target.checked)} /> Active (shown in lists)</label>
+        <h3>AI reading</h3>
+        <p className="muted small">
+          Help the AI read this company's vouchers. Describe in your own words where things are, and tick the parts
+          it should also see as a zoomed close-up.
+        </p>
+        <label>AI hints
+          <textarea rows={3} value={f.ai_hints || ''} onChange={(e) => set('ai_hints', e.target.value)}
+            placeholder="e.g. Account number is printed bottom middle, under 'ACCOUNT NO.', 4–5 digits. The date is handwritten, sometimes as a Hebrew date." />
+        </label>
+        <div className="checks">
+          {Object.entries(CLOSE_UPS).map(([key, c]) => (
+            <label key={key} className="check">
+              <input type="checkbox" checked={(f.ai_crop || []).includes(key)}
+                onChange={(e) => set('ai_crop', e.target.checked ? [...(f.ai_crop || []), key] : (f.ai_crop || []).filter((k) => k !== key))} />
+              {c.label}
+            </label>
+          ))}
+        </div>
+
         <label>Notes<input value={f.notes || ''} onChange={(e) => set('notes', e.target.value)} /></label>
         <ErrorBox error={error} />
         <div className="actions">

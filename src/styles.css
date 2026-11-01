@@ -240,3 +240,8 @@ input.cell.suggested { background: var(--info-bg); border-color: #9cc3e2; }
 .cell.ai { background: #f3ecff; border-color: #c4a8f0; }
 .flag.ai-flag { background: #f3ecff; color: #5b2ea6; }
 .pill.s-post_dated { background: #fff1e0; color: #8a4b00; }
+.date-wrap { display: flex; gap: 4px; align-items: center; }
+.heb-btn { padding: 5px 7px; font-size: 12px; }
+.heb-input { margin-top: 4px; width: 190px; }
+.heb-input.bad { border-color: var(--bad); }
+.checks { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }

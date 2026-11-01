@@ -2,6 +2,7 @@
 // The AI only fills boxes that are still empty; barcode data always wins, and nothing is
 // validated until a person presses ✓.
 import { supabase } from './supabase.js'
+import { parseHebrewDate } from './hebrewDate.js'
 
 export async function aiEnabled() {
   const { data } = await supabase.from('app_settings').select('value').eq('key', 'ai_reading').maybeSingle()
@@ -13,27 +14,66 @@ export async function setAiEnabled(on) {
   if (error) throw error
 }
 
-// Shrinks the image (long side 1500px, JPEG) so it's quick and cheap to send.
-async function toJpegBase64(blob) {
-  const bitmap = await createImageBitmap(blob)
-  const scale = Math.min(1, 1500 / Math.max(bitmap.width, bitmap.height))
+// Parts of a voucher that can be sent as zoomed close-ups: [left, top, width, height] as fractions.
+export const CLOSE_UPS = {
+  top_right: { label: 'Top right (usually the date)', area: [0.5, 0, 0.5, 0.42] },
+  middle_left: { label: 'Middle left (amount in words)', area: [0, 0.3, 0.62, 0.42] },
+  middle_right: { label: 'Middle right (amount box)', area: [0.5, 0.3, 0.5, 0.42] },
+  bottom_left: { label: 'Bottom left', area: [0, 0.68, 0.5, 0.32] },
+  bottom_middle: { label: 'Bottom middle (often the account no.)', area: [0.22, 0.68, 0.5, 0.32] },
+  bottom_right: { label: 'Bottom right', area: [0.5, 0.68, 0.5, 0.32] },
+}
+
+async function bitmapOf(blob) {
+  return createImageBitmap(blob)
+}
+
+// Draws (part of) the image onto a white canvas and returns it as base64 JPEG.
+function jpeg(bitmap, area, maxWidth, maxHeight, upscale = 1) {
+  const [fx, fy, fw, fh] = area
+  const sx = Math.round(fx * bitmap.width)
+  const sy = Math.round(fy * bitmap.height)
+  const sw = Math.max(1, Math.round(fw * bitmap.width))
+  const sh = Math.max(1, Math.round(fh * bitmap.height))
+  const scale = Math.min(upscale, maxWidth / sw, maxHeight / sh)
   const canvas = document.createElement('canvas')
-  canvas.width = Math.round(bitmap.width * scale)
-  canvas.height = Math.round(bitmap.height * scale)
+  canvas.width = Math.max(1, Math.round(sw * scale))
+  canvas.height = Math.max(1, Math.round(sh * scale))
   const ctx = canvas.getContext('2d')
   ctx.fillStyle = '#fff'
   ctx.fillRect(0, 0, canvas.width, canvas.height)
-  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
-  if (typeof bitmap.close === 'function') bitmap.close()
-  return canvas.toDataURL('image/jpeg', 0.85).split(',')[1]
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height)
+  return canvas.toDataURL('image/jpeg', 0.9).split(',')[1]
 }
 
-// Asks the AI to read one voucher image. Returns its raw answer with company_id added.
-export async function aiReadImage(blob, companies) {
+// Asks the AI to read one voucher image.
+//   company: the company if already known (from the barcode), so its hints and close-ups are used
+//   strong: use the stronger model
+export async function aiReadImage(blob, companies, { company = null, strong = false } = {}) {
   const active = companies.filter((c) => c.active !== false)
-  const image = await toJpegBase64(blob)
+  const bitmap = await bitmapOf(blob)
+  let image
+  const crops = []
+  try {
+    image = jpeg(bitmap, [0, 0, 1, 1], 2000, 2000)
+    for (const key of company?.ai_crop || []) {
+      const preset = CLOSE_UPS[key]
+      if (preset) crops.push({ label: preset.label, image: jpeg(bitmap, preset.area, 1400, 900, 2) })
+    }
+  } finally {
+    if (typeof bitmap.close === 'function') bitmap.close()
+  }
   const { data, error } = await supabase.functions.invoke('read-voucher', {
-    body: { image, media_type: 'image/jpeg', companies: active.map((c) => c.name) },
+    body: {
+      image,
+      media_type: 'image/jpeg',
+      crops,
+      companies: active.map((c) => c.name),
+      company: company?.name || null,
+      hints: company?.ai_hints || null,
+      model: strong ? 'strong' : 'fast',
+    },
   })
   if (error) {
     let message = error.message
@@ -41,8 +81,15 @@ export async function aiReadImage(blob, companies) {
     throw new Error(message)
   }
   if (data?.error) throw new Error(data.error)
-  const company = active.find((c) => c.name === data.company)
-  return { ...data, company_id: company?.id ?? null, read_at: new Date().toISOString() }
+
+  // Hebrew dates are converted here with an exact calendar calculation, not by the AI.
+  let date = data.date
+  if (data.date_hebrew) {
+    const h = parseHebrewDate(data.date_hebrew)
+    date = h ? h.iso : null
+  }
+  const found = active.find((c) => c.name === data.company)
+  return { ...data, date, company_id: found?.id ?? null, read_at: new Date().toISOString() }
 }
 
 // Works out which empty boxes the AI result can fill. Returns the database changes.
@@ -56,8 +103,41 @@ export function aiPatch(voucher, ai) {
   }
   if (!voucher.donor_account && ai.account_number) { patch.donor_account = ai.account_number; filled.push('donor_account') }
   if ((voucher.amount === null || voucher.amount === undefined) && ai.amount != null) { patch.amount = ai.amount; filled.push('amount') }
-  if (!voucher.expiry_date && ai.date) { patch.expiry_date = ai.date; filled.push('expiry_date') }
+  if (!voucher.expiry_date && ai.date) {
+    patch.expiry_date = ai.date
+    if (ai.date_hebrew) patch.date_text = ai.date_text || ai.date_hebrew
+    filled.push('expiry_date')
+  }
   patch.ai_data = { ...ai, filled }
+  return patch
+}
+
+// After a quick first read, decide whether a second, stronger read is worthwhile.
+function stillMissing(after, company) {
+  if (!after.company_id) return true
+  if (after.amount === null || after.amount === undefined) return true
+  if (!after.donor_account && (company?.ai_hints || company?.ai_crop?.length)) return true
+  return false
+}
+
+// Reads one voucher: quick model first, stronger model only if something important is still missing.
+async function readOne(voucher, blob, companies) {
+  const byId = Object.fromEntries(companies.map((c) => [c.id, c]))
+  let company = byId[voucher.company_id] || null
+  const first = await aiReadImage(blob, companies, { company })
+  let patch = aiPatch(voucher, first)
+  let after = { ...voucher, ...patch }
+  company = company || byId[after.company_id] || null
+  if (stillMissing(after, company)) {
+    try {
+      const second = await aiReadImage(blob, companies, { company, strong: true })
+      const patch2 = aiPatch(after, second)
+      const filled = [...new Set([...(patch.ai_data.filled || []), ...(patch2.ai_data.filled || [])])]
+      patch = { ...patch, ...patch2, ai_data: { ...first, second, filled } }
+    } catch {
+      /* keep the first read */
+    }
+  }
   return patch
 }
 
@@ -79,8 +159,8 @@ export async function aiReadMany(items, companies, onProgress) {
           if (error) throw error
           image = data
         }
-        const ai = await aiReadImage(image, companies)
-        const { error } = await supabase.from('vouchers').update(aiPatch(voucher, ai)).eq('id', voucher.id)
+        const patch = await readOne(voucher, image, companies)
+        const { error } = await supabase.from('vouchers').update(patch).eq('id', voucher.id)
         if (error) throw error
         updated++
       } catch (e) {

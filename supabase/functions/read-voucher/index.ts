@@ -1,9 +1,12 @@
-// VoucherFlow — read-voucher
+// VoucherFlow — read-voucher (version 2)
 // Reads one charity voucher image with Claude and returns the details it can see.
 // The Claude API key is stored as the Supabase secret ANTHROPIC_API_KEY and never leaves this function.
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
-const MODEL = 'claude-haiku-5-5'
+const MODELS: Record<string, string> = {
+  fast: 'claude-haiku-5-5',     // first read: quick and very cheap
+  strong: 'claude-sonnet-5-5',  // second try on vouchers where something is still missing
+}
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -14,6 +17,8 @@ const cors = {
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
 }
+
+type Crop = { label: string; image: string }
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
@@ -32,41 +37,57 @@ Deno.serve(async (req) => {
     const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
     if (!apiKey) return json({ error: 'ANTHROPIC_API_KEY secret is not set in Supabase' }, 500)
 
-    const { image, media_type, companies } = await req.json()
+    const body = await req.json()
+    const { image, media_type, companies, company, hints, model } = body
+    const crops: Crop[] = Array.isArray(body.crops) ? body.crops.slice(0, 6) : []
     if (!image || typeof image !== 'string') return json({ error: 'No image sent' }, 400)
-    if (image.length > 6_000_000) return json({ error: 'Image too large' }, 413)
+    const size = image.length + crops.reduce((n, c) => n + (c.image?.length || 0), 0)
+    if (size > 12_000_000) return json({ error: 'Images too large' }, 413)
     const names: string[] = Array.isArray(companies) ? companies.slice(0, 100).map(String) : []
+    const modelId = MODELS[model] || MODELS.fast
 
-    const instructions = `This is a scanned UK charity voucher (like a cheque, issued by a voucher company to a donor).
-Read it and reply with ONLY a JSON object, no other text:
-{"company": string|null, "voucher_number": string|null, "account_number": string|null, "date": "YYYY-MM-DD"|null, "amount": number|null}
+    const about = company
+      ? `This voucher is from ${company}.${hints ? `\nLayout notes for ${company} vouchers: ${hints}` : ''}`
+      : `The company that issued it is one of: ${JSON.stringify(names)}`
 
-Rules:
-- company: the voucher company that issued it, chosen EXACTLY from this list, or null if unsure: ${JSON.stringify(names)}
+    const instructions = `This is a scanned UK charity voucher (like a cheque) issued by a voucher company to a donor.
+${about}
+${crops.length ? `After the full voucher you also get zoomed close-ups of parts of it (labelled) — use them to read small print.` : ''}
+
+Reply with ONLY a JSON object, no other text:
+{"company": string|null, "voucher_number": string|null, "account_number": string|null,
+ "amount": number|null, "amount_words": string|null,
+ "date": "YYYY-MM-DD"|null, "date_text": string|null, "date_hebrew": string|null}
+
+How to read each field:
+- company: ${company ? `"${company}".` : 'chosen EXACTLY from the list above, or null if unsure.'}
 - voucher_number: the voucher's own number as printed (digits only), not the barcode text.
-- account_number: the donor account number exactly as printed, keeping leading zeros.
-- date: the date written or printed on the voucher (UK day/month/year order), as YYYY-MM-DD.
-- amount: the amount in pounds as a number (e.g. 18 or 2.5). Use the figure in the £ box; if only words, convert them.
-- Use null for anything not clearly readable. Never guess.`
+- account_number: the donor account number exactly as printed or written, keeping leading zeros.
+- amount: amounts are often HANDWRITTEN — read them. Use the figure in the £ box and check it against the amount
+  written in words (e.g. "Two Pounds only" = 2). If figures and words agree, give the amount. If only one is
+  readable, give that. If they clearly disagree, give null. Put the words, as written, in amount_words.
+- date: the date written or printed on the voucher. It is often handwritten, and may be in the Hebrew (Jewish)
+  calendar, e.g. ט"ו חשון תשפ"ז. Put the date exactly as written in date_text.
+  If it is a Hebrew date: put it in date_hebrew as "day monthname year" with an English month name and full year,
+  e.g. "15 Cheshvan 5787" (use Adar I / Adar II where relevant), and set date to null — it will be converted exactly.
+  Otherwise give date as YYYY-MM-DD (UK order: day/month/year) and date_hebrew null.
+- Use null for anything you cannot read. Do not invent values.`
+
+    const content: unknown[] = [
+      { type: 'text', text: 'Full voucher:' },
+      { type: 'image', source: { type: 'base64', media_type: media_type || 'image/jpeg', data: image } },
+    ]
+    for (const c of crops) {
+      if (!c?.image) continue
+      content.push({ type: 'text', text: `Close-up: ${String(c.label || 'detail')}` })
+      content.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: c.image } })
+    }
+    content.push({ type: 'text', text: instructions })
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 300,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: media_type || 'image/jpeg', data: image } },
-            { type: 'text', text: instructions },
-          ],
-        }],
-      }),
+      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: modelId, max_tokens: 400, messages: [{ role: 'user', content }] }),
     })
     const out = await res.json()
     if (!res.ok) return json({ error: out?.error?.message || `Claude API error ${res.status}` }, 502)
@@ -74,15 +95,19 @@ Rules:
     const text = (out.content || []).filter((c: { type: string }) => c.type === 'text').map((c: { text: string }) => c.text).join('')
     const match = text.match(/\{[\s\S]*\}/)
     if (!match) return json({ error: 'Could not understand the reply', raw: text }, 502)
-    const fields = JSON.parse(match[0])
+    const f = JSON.parse(match[0])
+    const str = (v: unknown) => (v === null || v === undefined || v === '' ? null : String(v).trim())
 
     return json({
-      company: names.includes(fields.company) ? fields.company : null,
-      voucher_number: fields.voucher_number ? String(fields.voucher_number).replace(/\s+/g, '') : null,
-      account_number: fields.account_number ? String(fields.account_number).replace(/\s+/g, '') : null,
-      date: /^\d{4}-\d{2}-\d{2}$/.test(fields.date || '') ? fields.date : null,
-      amount: typeof fields.amount === 'number' && fields.amount > 0 ? Math.round(fields.amount * 100) / 100 : null,
-      model: MODEL,
+      company: company || (names.includes(f.company) ? f.company : null),
+      voucher_number: str(f.voucher_number)?.replace(/\s+/g, '') ?? null,
+      account_number: str(f.account_number)?.replace(/\s+/g, '') ?? null,
+      amount: typeof f.amount === 'number' && f.amount > 0 ? Math.round(f.amount * 100) / 100 : null,
+      amount_words: str(f.amount_words),
+      date: /^\d{4}-\d{2}-\d{2}$/.test(f.date || '') ? f.date : null,
+      date_text: str(f.date_text),
+      date_hebrew: str(f.date_hebrew),
+      model: modelId,
     })
   } catch (e) {
     return json({ error: (e as Error).message || 'Unexpected error' }, 500)
