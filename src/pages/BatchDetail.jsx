@@ -457,7 +457,7 @@ export default function BatchDetail() {
                 checked={vouchers.length > 0 && vouchers.filter((x) => x.status === 'pending').every((x) => selectedIds.has(x.id)) && selectedIds.size > 0}
                 onChange={(e) => setSelectedIds(e.target.checked ? new Set(vouchers.filter((x) => x.status === 'pending').map((x) => x.id)) : new Set())} /></th>
               <th>Picture</th><th>Voucher no.</th><th>Account no.</th><th>Company</th><th className="num">Amount</th>
-              <th>Date on voucher</th><th>Status</th><th></th>
+              <th>Date on voucher</th><th>Status</th><th className="action-cell"></th>
             </tr>
           </thead>
           <tbody>

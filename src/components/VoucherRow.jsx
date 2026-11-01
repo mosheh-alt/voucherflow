@@ -278,8 +278,8 @@ const VoucherRow = forwardRef(function VoucherRow(
         {v.status_reason && <div className="muted small">{v.status_reason}</div>}
         <div className="flags">
           {!v.barcode_read && <span className="flag warn">No barcode</span>}
-          {v.barcode_read && isPlaceholderBarcode(v.barcode_raw) && v.status === 'pending' && (
-            <span className="flag warn" title={`Barcode ${v.barcode_raw} is the same on every voucher`}>Barcode has no voucher no. — read it from the print</span>
+          {v.barcode_read && isPlaceholderBarcode(v.barcode_raw) && v.status === 'pending' && !d.voucher_number && (
+            <span className="flag warn" title={`Barcode ${v.barcode_raw} is the same on every voucher`}>Type voucher no. from the print</span>
           )}
           {v.company_id && !companyById[v.company_id] && <span className="flag bad">Company not found ({String(v.company_id).slice(0, 8)})</span>}
           {v.barcode_read && !v.company_id && v.status === 'pending' && !isPlaceholderBarcode(v.barcode_raw) && (
@@ -313,7 +313,7 @@ const VoucherRow = forwardRef(function VoucherRow(
         </div>
         {problem && <div className="bad-text small">{problem}</div>}
       </td>
-      <td>
+      <td className="action-cell">
         {editable && (
           <button type="button" className="btn ok-btn" disabled={saving} onClick={validate} title="Validate (Enter)">
             {saving ? '…' : '✓'}

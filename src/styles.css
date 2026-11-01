@@ -227,7 +227,7 @@ input.cell[type="date"] { width: 150px; }
 
 /* Picture enlarged inside its own row, boxes stay to the right */
 .entry-table .thumb { transition: width .15s, height .15s; }
-.entry-table .thumb.thumb-big { width: min(480px, 40vw); height: auto; max-height: 300px; cursor: zoom-in; }
+.entry-table .thumb.thumb-big { width: min(400px, 30vw); height: auto; max-height: 300px; cursor: zoom-in; }
 .entry-table .thumb.thumb-big.thumb-huge { width: min(900px, 62vw); max-height: none; cursor: zoom-out; outline: 2px solid var(--primary); }
 .entry-table td:first-child { width: 1%; }
 .entry-table td { vertical-align: middle; }
@@ -281,3 +281,10 @@ input.cell.suggested { background: var(--info-bg); border-color: #9cc3e2; }
 .removed-box { margin-top: 14px; }
 @media (max-width: 900px) { .dup-grid { grid-template-columns: 1fr; } }
 .remove-btn { padding: 6px 10px; margin-left: 4px; color: var(--bad); border-color: #f0c3bf; } .remove-btn:hover { background: var(--bad-bg); }
+
+/* Keep the status column narrow (messages wrap) and the ✓ / ✕ buttons always on screen */
+.entry-table .status-cell { min-width: 140px; max-width: 210px; }
+.entry-table .status-cell .flag { white-space: normal; line-height: 1.3; }
+.entry-table .action-cell { position: sticky; right: 0; z-index: 1; background: #fff; white-space: nowrap; box-shadow: -6px 0 6px -6px rgba(0,0,0,.15); }
+.entry-table .row-pending .action-cell { background: #fffdf6; }
+.entry-table thead .action-cell { background: #fafbfc; }
