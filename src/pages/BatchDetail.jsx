@@ -301,7 +301,7 @@ export default function BatchDetail() {
 
       {vouchers.length > 0 && (
         <p className="muted small">
-          Type straight into the rows. Click a picture to show it large under its row — you can keep typing while it's open. Press <strong>Enter</strong> (or ✓) to validate a voucher and jump to the next one.
+          Type straight into the rows. Click a picture to enlarge it in its row — the boxes stay beside it, so you can read and type at the same time. Press <strong>Enter</strong> (or ✓) to validate a voucher and jump to the next one.
         </p>
       )}
       <div className="table-wrap">
@@ -309,7 +309,7 @@ export default function BatchDetail() {
           <thead>
             <tr>
               <th>Picture</th><th>Voucher no.</th><th>Company</th><th className="num">Amount</th>
-              <th>Expiry</th><th>Status</th><th>Flags</th><th></th>
+              <th>Expiry</th><th>Status</th><th></th>
             </tr>
           </thead>
           <tbody>
@@ -330,7 +330,7 @@ export default function BatchDetail() {
               />
             ))}
             {vouchers.length === 0 && (
-              <tr><td colSpan={8} className="muted">No vouchers yet. Upload the scanned images above.</td></tr>
+              <tr><td colSpan={7} className="muted">No vouchers yet. Upload the scanned images above.</td></tr>
             )}
           </tbody>
         </table>

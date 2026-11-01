@@ -131,11 +131,10 @@ const VoucherRow = forwardRef(function VoucherRow(
   }
 
   return (
-    <>
     <tr className={problem ? 'row-problem' : v.status === 'pending' ? 'row-pending' : ''}>
       <td>
         {thumb
-          ? <img className={`thumb zoomable ${expanded ? "thumb-open" : ""}`} src={thumb} alt="Voucher" title={expanded ? "Click to make smaller" : "Click to enlarge"} onClick={() => onToggleImage(v.id)} />
+          ? <img className={`thumb zoomable ${expanded ? "thumb-big" : ""}`} src={thumb} alt="Voucher" title={expanded ? "Click to make smaller" : "Click to enlarge"} onClick={() => onToggleImage(v.id)} />
           : <div className="thumb" />}
       </td>
       <td>
@@ -161,15 +160,15 @@ const VoucherRow = forwardRef(function VoucherRow(
           ? <input className="cell" type="date" value={d.expiry_date} onChange={(e) => set('expiry_date', e.target.value)} onBlur={saveField} onKeyDown={onKey} />
           : (v.expiry_date || '—')}
       </td>
-      <td>
+      <td className="status-cell">
         <StatusPill status={v.status} />
         {v.status_reason && <div className="muted small">{v.status_reason}</div>}
+        <div className="flags">
+          {!v.barcode_read && <span className="flag warn">No barcode</span>}
+          {v.possible_duplicate && <span className="flag bad">Duplicate?</span>}
+          {v.prefilled && v.status === 'pending' && <span className="flag info">Prefilled</span>}
+        </div>
         {problem && <div className="bad-text small">{problem}</div>}
-      </td>
-      <td className="flags">
-        {!v.barcode_read && <span className="flag warn">No barcode</span>}
-        {v.possible_duplicate && <span className="flag bad">Duplicate?</span>}
-        {v.prefilled && v.status === 'pending' && <span className="flag info">Prefilled</span>}
       </td>
       <td>
         {editable && (
@@ -179,14 +178,6 @@ const VoucherRow = forwardRef(function VoucherRow(
         )}
       </td>
     </tr>
-    {expanded && thumb && (
-      <tr className="preview-row">
-        <td colSpan={8}>
-          <img src={thumb} alt="Voucher enlarged" title="Click to make smaller" onClick={() => onToggleImage(v.id)} />
-        </td>
-      </tr>
-    )}
-    </>
   )
 })
 

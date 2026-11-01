@@ -223,7 +223,11 @@ input.cell[type="date"] { width: 150px; }
 .lightbox { position: fixed; inset: 0; z-index: 30; background: rgba(10, 15, 20, .88); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; cursor: zoom-out; }
 .lightbox img { max-width: 96vw; max-height: 86vh; object-fit: contain; background: #fff; border-radius: 6px; }
 .lightbox-caption { color: #dfe6ee; margin-top: 10px; font-size: 13px; }
-.thumb-open { outline: 2px solid var(--primary); }
-.preview-row td { background: #f1f4f7 !important; padding: 8px 10px 14px; }
-.preview-row img { display: block; width: 100%; max-width: 900px; max-height: 60vh; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 6px; cursor: zoom-out; }
 .entry-table tr { scroll-margin-top: 12px; }
+
+/* Picture enlarged inside its own row, boxes stay to the right */
+.entry-table .thumb { transition: width .15s, height .15s; }
+.entry-table .thumb.thumb-big { width: min(560px, 45vw); height: auto; max-height: 340px; cursor: zoom-out; outline: 2px solid var(--primary); }
+.entry-table td:first-child { width: 1%; }
+.entry-table td { vertical-align: middle; }
+.status-cell .flags { margin-top: 4px; }
