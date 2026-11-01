@@ -239,3 +239,4 @@ input.cell.suggested { background: var(--info-bg); border-color: #9cc3e2; }
 /* Boxes filled in by AI, not yet checked */
 .cell.ai { background: #f3ecff; border-color: #c4a8f0; }
 .flag.ai-flag { background: #f3ecff; color: #5b2ea6; }
+.pill.s-post_dated { background: #fff1e0; color: #8a4b00; }

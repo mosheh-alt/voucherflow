@@ -35,7 +35,7 @@ Run each update file in `supabase/` once, in number order, the same way as the s
 - `003_companies_and_barcode_rules.sql` — the 26 voucher companies and their barcode rules
 - `004_voucher_date_rules.sql` — issue-date validity (AAC: 6 months) and urgent warnings
 - `005_ai_reading.sql` — AI reading: stored AI guesses, on/off switch, accuracy figures
-- `006_written_date.sql` — "date written, no expiry" option (AHT)
+- `006_written_date.sql` — two date types (AAC: valid 6 months from date; others: date written, no expiry) and post-dated vouchers
 
 ### 1c. AI reading function
 Supabase → Edge Functions: secret `ANTHROPIC_API_KEY`, and a function `read-voucher` with the code in `supabase/functions/read-voucher/index.ts`.

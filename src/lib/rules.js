@@ -144,14 +144,14 @@ export function daysBetween(fromIso, toIso) {
 
 // The last day a voucher can be used. For companies whose voucher date is the issue date
 // (e.g. AAC: "valid for 6 months from the date"), that's the date plus the validity period.
+// Only companies whose date starts a validity period (e.g. AAC: 6 months) have a last valid day.
+// For all others the date is just when the voucher was written, and it doesn't expire.
 export function lastValidDate(company, voucherDate) {
   if (!voucherDate) return null
-  // Some companies print only the date the voucher was written; it never expires.
-  if (company && company.date_type === 'written') return null
   if (company && company.date_type === 'issue' && Number(company.validity_months) > 0) {
     return addMonths(voucherDate, company.validity_months)
   }
-  return voucherDate
+  return null
 }
 
 // Decide the status when a voucher is validated.
@@ -160,6 +160,16 @@ export function lastValidDate(company, voucherDate) {
 export function decideStatus({ company, expiry_date, receivedDate, today }) {
   if (company && company.accepted === false) {
     return { status: 'not_valid', reason: 'Company no longer accepted', sendBy: null, urgent: false }
+  }
+  // Post-dated: the date on the voucher is still in the future, so it can't be used yet.
+  if (expiry_date && today && expiry_date > today) {
+    return {
+      status: 'post_dated',
+      reason: `Post-dated: valid from ${expiry_date.split('-').reverse().join('/')}`,
+      sendBy: lastValidDate(company, expiry_date),
+      holdUntil: expiry_date,
+      urgent: false,
+    }
   }
   const sendBy = lastValidDate(company, expiry_date)
   if (sendBy && receivedDate && sendBy < receivedDate) {

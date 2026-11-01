@@ -1,6 +1,7 @@
 export const STATUS_LABELS = {
   pending: 'Pending',
   valid: 'Valid',
+  post_dated: 'Post-dated',
   not_valid: 'Not valid',
   sent: 'Sent',
   received_success: 'Received – success',
@@ -11,7 +12,7 @@ export const STATUS_LABELS = {
 }
 
 export const STATUS_ORDER = [
-  'pending', 'valid', 'not_valid', 'sent',
+  'pending', 'valid', 'post_dated', 'not_valid', 'sent',
   'received_success', 'received_pending', 'rejected', 'paid', 'cancelled',
 ]
 

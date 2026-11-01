@@ -8,7 +8,7 @@ import { ErrorBox, Modal } from '../components.jsx'
 const EMPTY = {
   name: '', submission_method: 'physical', report_email: '', portal_url: '', address: '',
   barcode_pattern: '', amount_divisor: 100, expiry_format: 'YYMMDD', accepted: true, active: true, notes: '',
-  date_type: 'expiry', validity_months: '', urgent_days: 3,
+  date_type: 'written', validity_months: '', urgent_days: 3,
 }
 
 export default function Companies() {
@@ -82,7 +82,7 @@ function CompanyForm({ initial, onClose, onSaved }) {
       expiry_format: f.expiry_format,
       accepted: f.accepted,
       active: f.active,
-      date_type: f.date_type || 'expiry',
+      date_type: f.date_type === 'issue' ? 'issue' : 'written',
       validity_months: f.date_type === 'issue' && f.validity_months !== '' ? Number(f.validity_months) : null,
       urgent_days: f.urgent_days === '' ? 3 : Number(f.urgent_days),
       notes: f.notes?.trim() || null,
@@ -148,10 +148,9 @@ function CompanyForm({ initial, onClose, onSaved }) {
         <h3>Validity</h3>
         <div className="grid2">
           <label>The date on the voucher is
-            <select value={f.date_type || 'expiry'} onChange={(e) => set('date_type', e.target.value)}>
-              <option value="expiry">the expiry date (valid until)</option>
-              <option value="issue">the issue date (valid for a period from it)</option>
+            <select value={f.date_type === 'issue' ? 'issue' : 'written'} onChange={(e) => set('date_type', e.target.value)}>
               <option value="written">just the date it was written (no expiry)</option>
+              <option value="issue">the start of a validity period (e.g. valid 6 months from it)</option>
             </select>
           </label>
           {f.date_type === 'issue' ? (

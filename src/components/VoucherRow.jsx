@@ -5,7 +5,7 @@ import { date, today } from '../lib/format.js'
 import { useAuth } from '../auth.jsx'
 import { StatusPill } from '../components.jsx'
 
-const EDITABLE = ['pending', 'valid', 'not_valid']
+const EDITABLE = ['pending', 'valid', 'post_dated', 'not_valid']
 
 function draftFrom(v) {
   return {
@@ -94,6 +94,7 @@ const VoucherRow = forwardRef(function VoucherRow(
     if (!d.expiry_date || !EDITABLE.includes(v.status)) return null
     const r = decideStatus({ company: companyById[d.company_id], expiry_date: d.expiry_date, receivedDate: batch.received_date, today: today() })
     if (r.status === 'not_valid') return { kind: 'bad-text', text: r.reason }
+    if (r.status === 'post_dated') return { kind: 'warn-text', text: r.reason }
     if (r.urgent) return { kind: 'warn-text', text: `Urgent: expires ${date(r.sendBy)}` }
     if (r.sendBy && r.sendBy !== d.expiry_date) return { kind: 'muted', text: `Valid until ${date(r.sendBy)}` }
     return null
@@ -143,7 +144,7 @@ const VoucherRow = forwardRef(function VoucherRow(
         .eq('voucher_number', values.voucher_number)
         .neq('id', v.id)
         .is('deleted_at', null)
-      const { status, reason, sendBy, urgent } = decideStatus({
+      const { status, reason, sendBy, urgent, holdUntil } = decideStatus({
         company: companyById[values.company_id],
         expiry_date: values.expiry_date,
         receivedDate: batch.received_date,
@@ -155,6 +156,7 @@ const VoucherRow = forwardRef(function VoucherRow(
         status_reason: reason,
         send_by: sendBy,
         urgent,
+        hold_until: holdUntil ?? null,
         possible_duplicate: (count ?? 0) > 0,
         validated_by: session.user.id,
         validated_at: new Date().toISOString(),

@@ -6,7 +6,7 @@ import { useAuth } from '../auth.jsx'
 import { reextract } from '../lib/reextract.js'
 import { ErrorBox, StatusPill } from '../components.jsx'
 
-const EDITABLE = ['pending', 'valid', 'not_valid']
+const EDITABLE = ['pending', 'valid', 'post_dated', 'not_valid']
 
 function formFrom(v) {
   return {
@@ -221,7 +221,7 @@ export default function VoucherEditor({ batch, vouchers, companies, currentId, o
       return
     }
     const duplicate = await checkDuplicate(values.voucher_number)
-    const { status, reason, sendBy, urgent } = decideStatus({
+    const { status, reason, sendBy, urgent, holdUntil } = decideStatus({
       company: companyById[values.company_id],
       expiry_date: values.expiry_date,
       receivedDate: batch.received_date,
@@ -230,7 +230,7 @@ export default function VoucherEditor({ batch, vouchers, companies, currentId, o
     setWarning(status === 'not_valid'
       ? `Previous voucher ${values.voucher_number} saved as NOT VALID: ${reason}`
       : urgent ? `Previous voucher ${values.voucher_number}: ${reason}` : null)
-    await save({ ...values, status, status_reason: reason, send_by: sendBy, urgent, possible_duplicate: duplicate })
+    await save({ ...values, status, status_reason: reason, send_by: sendBy, urgent, hold_until: holdUntil ?? null, possible_duplicate: duplicate })
   }
 
   async function submitNotValid() {
@@ -303,6 +303,7 @@ export default function VoucherEditor({ batch, vouchers, companies, currentId, o
           {form.expiry_date && (() => {
             const r = decideStatus({ company: selectedCompany, expiry_date: form.expiry_date, receivedDate: batch.received_date, today: today() })
             if (r.status === 'not_valid') return <div className="alert warn">{r.reason} — will be saved as not valid.</div>
+            if (r.status === 'post_dated') return <div className="alert warn">{r.reason} — will be saved as post-dated.</div>
             if (r.urgent) return <div className="alert warn">Urgent: expires {date(r.sendBy)} — send within 1–2 days.</div>
             if (r.sendBy && r.sendBy !== form.expiry_date) return <div className="alert info small">Valid until {date(r.sendBy)}.</div>
             return null
