@@ -232,3 +232,5 @@ input.cell[type="date"] { width: 150px; }
 .entry-table td:first-child { width: 1%; }
 .entry-table td { vertical-align: middle; }
 .status-cell .flags { margin-top: 4px; }
+input.cell.acc { width: 110px; }
+input.cell.suggested { background: var(--info-bg); border-color: #9cc3e2; }

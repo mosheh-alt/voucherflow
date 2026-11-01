@@ -304,7 +304,7 @@ export default function BatchDetail() {
         <table className="table entry-table">
           <thead>
             <tr>
-              <th>Picture</th><th>Voucher no.</th><th>Company</th><th className="num">Amount</th>
+              <th>Picture</th><th>Voucher no.</th><th>Account no.</th><th>Company</th><th className="num">Amount</th>
               <th>Expiry</th><th>Status</th><th></th>
             </tr>
           </thead>
@@ -326,7 +326,7 @@ export default function BatchDetail() {
               />
             ))}
             {vouchers.length === 0 && (
-              <tr><td colSpan={7} className="muted">No vouchers yet. Upload the scanned images above.</td></tr>
+              <tr><td colSpan={8} className="muted">No vouchers yet. Upload the scanned images above.</td></tr>
             )}
           </tbody>
         </table>

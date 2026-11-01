@@ -9,6 +9,7 @@ const EDITABLE = ['pending', 'valid', 'not_valid']
 function draftFrom(v) {
   return {
     voucher_number: v.voucher_number || '',
+    donor_account: v.donor_account || '',
     company_id: v.company_id || '',
     amount: v.amount ?? '',
     expiry_date: v.expiry_date || '',
@@ -18,6 +19,7 @@ function draftFrom(v) {
 function clean(d) {
   return {
     voucher_number: d.voucher_number.trim() || null,
+    donor_account: d.donor_account.trim() || null,
     company_id: d.company_id || null,
     amount: d.amount === '' || d.amount === null ? null : Number(d.amount),
     expiry_date: d.expiry_date || null,
@@ -37,6 +39,8 @@ const VoucherRow = forwardRef(function VoucherRow(
   const numberRef = useRef(null)
   const companyRef = useRef(null)
   const amountRef = useRef(null)
+  const accountRef = useRef(null)
+  const [suggested, setSuggested] = useState(null) // { account, from, distance }
   const editable = canEdit && EDITABLE.includes(v.status)
   // Vouchers still to do are shown large; once validated they shrink back (click to review).
   const pictureSize = v.status === 'pending'
@@ -55,18 +59,33 @@ const VoucherRow = forwardRef(function VoucherRow(
       return out
     })
     synced.current = fresh
-  }, [v.voucher_number, v.company_id, v.amount, v.expiry_date, v.updated_at])
+  }, [v.voucher_number, v.donor_account, v.company_id, v.amount, v.expiry_date, v.updated_at])
 
   useImperativeHandle(ref, () => ({
     focus() {
       if (!d.voucher_number) numberRef.current?.focus()
       else if (!d.company_id) companyRef.current?.focus()
+      else if (d.amount === '' || d.amount === null) amountRef.current?.focus()
+      else if (!d.donor_account) accountRef.current?.focus()
       else amountRef.current?.select()
       numberRef.current?.closest('tr')?.scrollIntoView({ block: 'start', behavior: 'smooth' })
     },
   }))
 
+  // When you start on a row with no account, suggest one from the nearest known voucher.
+  async function suggestAccount() {
+    if (!editable || d.donor_account || suggested === false) return
+    const num = d.voucher_number.trim()
+    if (!d.company_id || !/^\d+$/.test(num)) return
+    const { data, error } = await supabase.rpc('suggest_account', { p_company: d.company_id, p_voucher: num, p_range: 10 })
+    const s = !error && data?.[0]
+    if (!s) { setSuggested(false); return }
+    setSuggested({ account: s.donor_account, from: s.from_voucher, distance: s.distance })
+    setD((x) => (x.donor_account ? x : { ...x, donor_account: s.donor_account }))
+  }
+
   function set(field, value) {
+    if (field === 'voucher_number' || field === 'company_id') setSuggested(null)
     setD((x) => ({ ...x, [field]: value }))
     setProblem(null)
   }
@@ -135,7 +154,7 @@ const VoucherRow = forwardRef(function VoucherRow(
   }
 
   return (
-    <tr className={problem ? 'row-problem' : v.status === 'pending' ? 'row-pending' : ''}>
+    <tr onFocus={suggestAccount} className={problem ? 'row-problem' : v.status === 'pending' ? 'row-pending' : ''}>
       <td>
         {thumb
           ? <img className={`thumb zoomable ${pictureSize}`} src={thumb} alt="Voucher" loading="lazy" title={expanded ? "Click to make smaller" : "Click to enlarge"} onClick={() => onToggleImage(v.id)} />
@@ -145,6 +164,17 @@ const VoucherRow = forwardRef(function VoucherRow(
         {editable
           ? <input ref={numberRef} className="cell mono" value={d.voucher_number} onChange={(e) => set('voucher_number', e.target.value)} onBlur={saveField} onKeyDown={onKey} placeholder="Voucher no." />
           : <span className="mono">{v.voucher_number || '—'}</span>}
+      </td>
+      <td>
+        {editable ? (
+          <>
+            <input ref={accountRef} className={`cell mono acc ${suggested && d.donor_account === suggested.account ? 'suggested' : ''}`} value={d.donor_account}
+              onChange={(e) => set('donor_account', e.target.value)} onBlur={saveField} onKeyDown={onKey} placeholder="Account no." />
+            {suggested && d.donor_account === suggested.account && (
+              <div className="muted small" title={`From voucher ${suggested.from}`}>suggested · check it</div>
+            )}
+          </>
+        ) : (v.donor_account || '—')}
       </td>
       <td>
         {editable ? (
