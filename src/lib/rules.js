@@ -96,6 +96,13 @@ function amountFromGroups(g, company) {
   return null
 }
 
+// Some vouchers (e.g. Cosmon Belz) carry a dummy barcode such as 0000001 that is the same on
+// every voucher. Such a barcode says nothing about the voucher: the number must be read from the print.
+export function isPlaceholderBarcode(barcode) {
+  const b = String(barcode || '').trim()
+  return /^\d+$/.test(b) && Number(b) < 100
+}
+
 // Find the company whose barcode pattern matches, and read any fields it holds.
 // Returns { company, fields: { voucher_number, amount, donor_account, expiry_date }, prefilled }
 export function interpretBarcode(barcode, companies) {
@@ -105,6 +112,10 @@ export function interpretBarcode(barcode, companies) {
     prefilled: false,
   }
   if (!barcode) return result
+  if (isPlaceholderBarcode(barcode)) {
+    result.fields.voucher_number = null
+    return result
+  }
   const code = String(barcode).trim()
   for (const company of companies || []) {
     if (company.active === false) continue

@@ -41,6 +41,7 @@ Run each update file in `supabase/` once, in number order, the same way as the s
 - `009_company_from_number.sql` — recognise the company from the voucher number (number history + patterns, loaded from the London sheet)
 - `010_duplicates.sql` — duplicates linked to the voucher they match; removing and restoring vouchers
 - `011_miffal_barcodes.sql` — Miffal barcode rule (voucher number in two parts, amount code)
+- `012_cosmon_belz.sql` — Cosmon Belz: dummy barcode ignored, AI hints for the printed voucher number
 - `fix_missing_columns.sql` — catch-up: adds anything from 004–008 that is missing
 
 ### 1c. AI reading function

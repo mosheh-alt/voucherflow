@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase.js'
-import { decideStatus, missingFields } from '../lib/rules.js'
+import { decideStatus, isPlaceholderBarcode, missingFields } from '../lib/rules.js'
 import { date, today } from '../lib/format.js'
 import { parseHebrewDate } from '../lib/hebrewDate.js'
 import { useAuth } from '../auth.jsx'
@@ -273,8 +273,11 @@ const VoucherRow = forwardRef(function VoucherRow(
         {v.status_reason && <div className="muted small">{v.status_reason}</div>}
         <div className="flags">
           {!v.barcode_read && <span className="flag warn">No barcode</span>}
+          {v.barcode_read && isPlaceholderBarcode(v.barcode_raw) && v.status === 'pending' && (
+            <span className="flag warn" title={`Barcode ${v.barcode_raw} is the same on every voucher`}>Barcode has no voucher no. — read it from the print</span>
+          )}
           {v.company_id && !companyById[v.company_id] && <span className="flag bad">Company not found ({String(v.company_id).slice(0, 8)})</span>}
-          {v.barcode_read && !v.company_id && v.status === 'pending' && (
+          {v.barcode_read && !v.company_id && v.status === 'pending' && !isPlaceholderBarcode(v.barcode_raw) && (
             <span className="flag warn" title={`Barcode read: ${v.barcode_raw}`}>Barcode not recognised: {v.barcode_raw}</span>
           )}
           {v.possible_duplicate && (

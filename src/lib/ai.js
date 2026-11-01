@@ -3,7 +3,7 @@
 // validated until a person presses ✓.
 import { supabase } from './supabase.js'
 import { parseHebrewDate } from './hebrewDate.js'
-import { combineWithAi } from './companyGuess.js'
+import { combineWithAi, suggestCompany } from './companyGuess.js'
 
 export async function aiEnabled() {
   const { data } = await supabase.from('app_settings').select('value').eq('key', 'ai_reading').maybeSingle()
@@ -98,8 +98,8 @@ export function aiPatch(voucher, ai) {
   const patch = {}
   const filled = []
   if (!voucher.company_id && ai.company_id) { patch.company_id = ai.company_id; filled.push('company_id') }
-  // The barcode's voucher number wins; the AI fills it only when no barcode was read.
-  if (!voucher.barcode_read && !voucher.voucher_number && ai.voucher_number) {
+  // The barcode's voucher number wins; the AI fills it only when the barcode gave none.
+  if (!voucher.voucher_number && ai.voucher_number) {
     patch.voucher_number = ai.voucher_number; filled.push('voucher_number')
   }
   if (!voucher.donor_account && ai.account_number) { patch.donor_account = ai.account_number; filled.push('donor_account') }
@@ -132,6 +132,21 @@ async function readOne(voucher, blob, companies) {
   const first = await aiReadImage(blob, companies, { company })
   let patch = aiPatch(voucher, first)
   if (fromHistory) Object.assign(patch, combineWithAi(voucher, first.company_id))
+  // The AI read a voucher number the barcode didn't have: ask the number history about the company too.
+  if (patch.voucher_number && !voucher.company_id) {
+    const hist = await suggestCompany(patch.voucher_number)
+    if (hist) {
+      if (!patch.company_id) {
+        patch.company_id = hist.company_id
+        patch.company_hint = { state: 'history', history: hist }
+      } else {
+        patch.company_hint = hist.company_id === patch.company_id
+          ? { state: 'agree', history: hist, ai: patch.company_id }
+          : { state: 'conflict', history: hist, ai: patch.company_id }
+        if (hist.company_id !== patch.company_id) patch.company_id = null
+      }
+    }
+  }
   let after = { ...voucher, ...patch }
   company = company || (after.company_hint?.state !== 'conflict' ? byId[after.company_id] : null) || null
   if (stillMissing(after, company)) {

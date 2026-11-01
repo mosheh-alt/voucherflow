@@ -1,7 +1,7 @@
 // Reads a voucher's barcode again from its stored image and applies the company rules.
 import { supabase } from './supabase.js'
 import { readBarcode } from './barcode.js'
-import { interpretBarcode } from './rules.js'
+import { interpretBarcode, isPlaceholderBarcode } from './rules.js'
 import { suggestCompany } from './companyGuess.js'
 
 // Returns { barcode, company, fields, prefilled }; barcode is null if none could be read.
@@ -23,6 +23,10 @@ export async function reextract(voucher, companies) {
 export function reextractPatch({ barcode, company, fields, prefilled, history }) {
   if (!barcode) return null
   const patch = { barcode_raw: barcode, barcode_read: true, prefilled }
+  if (isPlaceholderBarcode(barcode)) {
+    // Dummy barcode: drop the number it gave and the duplicate flag that came with it.
+    return { ...patch, voucher_number: null, possible_duplicate: false }
+  }
   if (!company && history) {
     patch.voucher_number = fields.voucher_number
     patch.company_id = history.company_id
