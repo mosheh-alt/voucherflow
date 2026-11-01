@@ -134,7 +134,7 @@ const VoucherRow = forwardRef(function VoucherRow(
     <tr className={problem ? 'row-problem' : v.status === 'pending' ? 'row-pending' : ''}>
       <td>
         {thumb
-          ? <img className={`thumb zoomable ${expanded ? "thumb-big" : ""}`} src={thumb} alt="Voucher" title={expanded ? "Click to make smaller" : "Click to enlarge"} onClick={() => onToggleImage(v.id)} />
+          ? <img className={`thumb thumb-big zoomable ${expanded ? "thumb-huge" : ""}`} src={thumb} alt="Voucher" loading="lazy" title={expanded ? "Click to make smaller" : "Click to zoom in"} onClick={() => onToggleImage(v.id)} />
           : <div className="thumb" />}
       </td>
       <td>

@@ -227,7 +227,8 @@ input.cell[type="date"] { width: 150px; }
 
 /* Picture enlarged inside its own row, boxes stay to the right */
 .entry-table .thumb { transition: width .15s, height .15s; }
-.entry-table .thumb.thumb-big { width: min(560px, 45vw); height: auto; max-height: 340px; cursor: zoom-out; outline: 2px solid var(--primary); }
+.entry-table .thumb.thumb-big { width: min(480px, 40vw); height: auto; max-height: 300px; cursor: zoom-in; }
+.entry-table .thumb.thumb-big.thumb-huge { width: min(900px, 62vw); max-height: none; cursor: zoom-out; outline: 2px solid var(--primary); }
 .entry-table td:first-child { width: 1%; }
 .entry-table td { vertical-align: middle; }
 .status-cell .flags { margin-top: 4px; }

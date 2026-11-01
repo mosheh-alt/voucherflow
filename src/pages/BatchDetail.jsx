@@ -185,17 +185,12 @@ export default function BatchDetail() {
     const i = vouchers.findIndex((x) => x.id === fromId)
     const order = [...vouchers.slice(i + 1), ...vouchers.slice(0, Math.max(i, 0))]
     const next = order.find((x) => x.status === 'pending' && x.id !== fromId)
-    // If a picture was open, open the next voucher's picture instead, so you can keep reading and typing.
-    setZoomedId((z) => (z ? next?.id ?? null : null))
     if (next) setTimeout(() => rowRefs.current[next.id]?.focus(), 30)
   }
 
   function startValidating() {
     const first = vouchers.find((x) => x.status === 'pending')
-    if (first) {
-      setZoomedId(first.id)
-      setTimeout(() => rowRefs.current[first.id]?.focus(), 30)
-    }
+    if (first) rowRefs.current[first.id]?.focus()
   }
 
   async function setBatchStatus(status) {
@@ -301,7 +296,7 @@ export default function BatchDetail() {
 
       {vouchers.length > 0 && (
         <p className="muted small">
-          Type straight into the rows. Click a picture to enlarge it in its row — the boxes stay beside it, so you can read and type at the same time. Press <strong>Enter</strong> (or ✓) to validate a voucher and jump to the next one.
+          Type straight into the rows. Each voucher is shown large next to its boxes. Click a picture to zoom in further. Press <strong>Enter</strong> (or ✓) to validate a voucher and jump to the next one.
         </p>
       )}
       <div className="table-wrap">
