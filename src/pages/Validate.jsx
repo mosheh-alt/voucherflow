@@ -35,6 +35,7 @@ export default function Validate() {
   const [rejecting, setRejecting] = useState(false)
   const [reason, setReason] = useState(NOT_VALID_REASONS[0])
   const [history, setHistory] = useState([])
+  const [suggestion, setSuggestion] = useState(null) // { account, from, distance }
   const amountRef = useRef(null)
   const numberRef = useRef(null)
   const companyRef = useRef(null)
@@ -73,6 +74,7 @@ export default function Validate() {
   useEffect(() => {
     if (!current) return
     setForm(formFrom(current))
+    setSuggestion(null)
     setError(null)
     setRejecting(false)
     setZoom(false)
@@ -105,6 +107,32 @@ export default function Validate() {
     }
     return null
   }
+
+  // Suggest the donor account from the nearest known voucher of the same company.
+  const formCompany = form?.company_id
+  const formNumber = form?.voucher_number
+  useEffect(() => {
+    if (!form || !current || !EDITABLE.includes(current.status)) return
+    const num = (formNumber || '').trim()
+    const fromSuggestion = suggestion && form.donor_account === suggestion.account
+    if (form.donor_account && !fromSuggestion) return // a person typed or saved an account: leave it
+    if (!formCompany || !/^\d+$/.test(num)) return
+    let cancelled = false
+    const t = setTimeout(async () => {
+      const { data, error } = await supabase.rpc('suggest_account', { p_company: formCompany, p_voucher: num, p_range: 10 })
+      if (cancelled || error) return
+      const s = data?.[0]
+      if (s) {
+        setSuggestion({ account: s.donor_account, from: s.from_voucher, distance: s.distance })
+        setForm((f) => ({ ...f, donor_account: s.donor_account }))
+      } else if (fromSuggestion) {
+        setSuggestion(null)
+        setForm((f) => ({ ...f, donor_account: '' }))
+      }
+    }, 250)
+    return () => { cancelled = true; clearTimeout(t) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formCompany, formNumber, current?.id])
 
   function update(field, value) {
     setForm((f) => ({ ...f, [field]: value }))
@@ -259,6 +287,12 @@ export default function Validate() {
             <label>Donor account number <span className="muted">(if shown)</span>
               <input className="mono" value={form.donor_account} onChange={(e) => update('donor_account', e.target.value)} />
             </label>
+            {suggestion && form.donor_account === suggestion.account && (
+              <div className="alert info small">
+                Suggested from voucher {suggestion.from}
+                {Number(suggestion.distance) === 0 ? ' (same voucher seen before)' : ` (${suggestion.distance} away)`} — please check it against the voucher.
+              </div>
+            )}
             <label>Expiry date <span className="muted">(if shown)</span>
               <input type="date" value={form.expiry_date} onChange={(e) => update('expiry_date', e.target.value)} />
             </label>

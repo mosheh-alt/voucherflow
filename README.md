@@ -29,6 +29,10 @@ reconciliation, collector PDF emails, scanner connection.
 5. **Project Settings → API Keys**: copy the **Project URL** and the **anon / publishable** key.
    Never use or share the *service_role / secret* key.
 
+### 1b. Database updates
+Run each update file in `supabase/` once, in number order, the same way as the setup script:
+- `002_account_suggestions.sql` — donor account suggestions + AAC barcode rule and history
+
 ### 2. Website (Cloudflare Pages)
 1. Cloudflare → **Workers & Pages → Create → Pages → Import an existing Git repository**.
 2. Connect GitHub and choose the **voucherflow** repository.
