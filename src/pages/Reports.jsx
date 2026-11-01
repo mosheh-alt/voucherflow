@@ -3,6 +3,7 @@ import { supabase, fetchAll } from '../lib/supabase.js'
 import { STATUS_LABELS, STATUS_ORDER, collectorLabel, date, money, today } from '../lib/format.js'
 import { downloadCSV } from '../lib/csv.js'
 import { ErrorBox } from '../components.jsx'
+import VoucherSearch from '../components/VoucherSearch.jsx'
 
 function monthStart() {
   return today().slice(0, 8) + '01'
@@ -103,7 +104,9 @@ export default function Reports() {
 
   return (
     <>
-      <div className="page-head"><h1>Collector report</h1></div>
+      <div className="page-head"><h1>Reports</h1></div>
+      <VoucherSearch />
+      <h2 style={{ marginTop: 28 }}>Collector report</h2>
       <form className="filters" onSubmit={run}>
         <label>Collector
           <select value={collectorId} onChange={(e) => setCollectorId(e.target.value)}>

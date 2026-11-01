@@ -288,3 +288,9 @@ input.cell.suggested { background: var(--info-bg); border-color: #9cc3e2; }
 .entry-table .action-cell { position: sticky; right: 0; z-index: 1; background: #fff; white-space: nowrap; box-shadow: -6px 0 6px -6px rgba(0,0,0,.15); }
 .entry-table .row-pending .action-cell { background: #fffdf6; }
 .entry-table thead .action-cell { background: #fafbfc; }
+
+/* Search bars */
+.filters label.grow { flex: 1 1 320px; }
+.search-bar { margin-top: 8px; }
+.search-card { margin-bottom: 20px; }
+.search-card h2 { margin-top: 0; }

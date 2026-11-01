@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { supabase, signedUrls } from '../lib/supabase.js'
 import { decideStatus, isPlaceholderBarcode, missingFields } from '../lib/rules.js'
@@ -36,9 +37,11 @@ function clean(d) {
 // One voucher row on the batch page, with the data entered directly in the row.
 // Leaving a box saves it; Enter (or ✓) validates the voucher and jumps to the next one.
 const VoucherRow = forwardRef(function VoucherRow(
-  { v, batch, companies, companyById, thumb, expanded, onToggleImage, onUpdated, onNext, canEdit, selected, onSelect, onShowDuplicate, onRemove, onImageError },
+  { v, batch, companies, companyById, thumb, expanded, onToggleImage, onUpdated, onNext, canEdit, selected, onSelect, onShowDuplicate, onRemove, onImageError, showBatch },
   ref
 ) {
+  // On the pool and search lists each voucher brings its own batch (drop-off date).
+  batch = batch || v.batches || {}
   const { session } = useAuth()
   const [d, setD] = useState(draftFrom(v))
   const [saving, setSaving] = useState(false)
@@ -220,6 +223,7 @@ const VoucherRow = forwardRef(function VoucherRow(
           ? <img className={`thumb zoomable ${pictureSize}`} src={expanded && fullUrl ? fullUrl : thumb} onError={() => onImageError?.()} alt="Voucher" loading="lazy" title={expanded ? "Click to make smaller" : "Click to enlarge"} onClick={() => onToggleImage(v.id)} />
           : <div className="thumb" />}
       </td>
+      {showBatch && <td className="mono"><strong>{v.collector_reference}</strong></td>}
       <td>
         {editable
           ? <input ref={numberRef} className={"cell mono" + aiCls("voucher_number")} value={d.voucher_number} onChange={(e) => set('voucher_number', e.target.value)} onBlur={saveField} onKeyDown={onKey} placeholder="Voucher no." />
@@ -276,6 +280,9 @@ const VoucherRow = forwardRef(function VoucherRow(
       <td className="status-cell">
         <StatusPill status={v.status} />
         {v.status_reason && <div className="muted small">{v.status_reason}</div>}
+        {v.status === 'post_dated' && v.hold_until && <div className="small warn-text">Can be sent from {date(v.hold_until)}</div>}
+        {v.sent_at && <div className="small muted">Sent {date(v.sent_at)}{v.sent_reference ? ` · ref ${v.sent_reference}` : ''}</div>}
+        {v.paid_at && <div className="small muted">Paid {date(v.paid_at)}</div>}
         <div className="flags">
           {!v.barcode_read && <span className="flag warn">No barcode</span>}
           {v.barcode_read && isPlaceholderBarcode(v.barcode_raw) && v.status === 'pending' && !d.voucher_number && (
@@ -313,6 +320,9 @@ const VoucherRow = forwardRef(function VoucherRow(
         </div>
         {problem && <div className="bad-text small">{problem}</div>}
       </td>
+      {showBatch && (
+        <td><Link to={`/batches/${v.batch_id}`}>#{v.batches?.batch_no}</Link><div className="small muted">{date(v.batches?.received_date)}</div></td>
+      )}
       <td className="action-cell">
         {editable && (
           <button type="button" className="btn ok-btn" disabled={saving} onClick={validate} title="Validate (Enter)">

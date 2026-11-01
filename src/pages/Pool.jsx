@@ -1,10 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { supabase, fetchAll, signedUrls } from '../lib/supabase.js'
 import { METHOD_LABELS, STATUS_LABELS, date, money, today } from '../lib/format.js'
 import { downloadCSV } from '../lib/csv.js'
 import { useAuth } from '../auth.jsx'
-import { ErrorBox, Modal, StatusPill } from '../components.jsx'
+import { ErrorBox, Modal } from '../components.jsx'
+import VoucherTable from '../components/VoucherTable.jsx'
+import RemoveDialog from '../components/RemoveDialog.jsx'
+import { voucherMatches } from '../lib/search.js'
+import { REMOVABLE } from '../lib/duplicates.js'
 
 // The tabs of the pool: which statuses each one shows.
 const VIEWS = {
@@ -39,14 +43,15 @@ export default function Pool() {
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(0)
   const [thumbs, setThumbs] = useState({})
-  const [bigId, setBigId] = useState(null)
+  const [removing, setRemoving] = useState(false)
+  const lastRefresh = useRef(0)
   const [selected, setSelected] = useState(new Set())
   const [action, setAction] = useState(null) // 'sent' | 'received' | 'rejected' | 'paid' | 'back'
   const [error, setError] = useState(null)
   const [notice, setNotice] = useState(null)
 
   useEffect(() => {
-    supabase.from('companies').select('id, name, submission_method, report_email').order('name').then(({ data }) => setCompanies(data || []))
+    supabase.from('companies').select('*').order('name').then(({ data }) => setCompanies(data || []))
   }, [])
   const companyById = useMemo(() => Object.fromEntries(companies.map((c) => [c.id, c])), [companies])
 
@@ -73,10 +78,9 @@ export default function Pool() {
   useEffect(() => { load() }, [load])
 
   const shown = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return rows
-    return rows.filter((r) => `${r.voucher_number || ''} ${r.donor_account || ''}`.toLowerCase().includes(q))
-  }, [rows, search])
+    if (!search.trim()) return rows
+    return rows.filter((r) => voucherMatches(r, search, companyById))
+  }, [rows, search, companyById])
 
   const pageRows = shown.slice(page * PAGE, page * PAGE + PAGE)
   const pages = Math.max(1, Math.ceil(shown.length / PAGE))
@@ -173,8 +177,9 @@ export default function Pool() {
           <input value={collector} onChange={(e) => setCollector(e.target.value)} onBlur={() => setFilter('collector', collector.trim())}
             onKeyDown={(e) => e.key === 'Enter' && setFilter('collector', collector.trim())} placeholder="Any" />
         </label>
-        <label>Voucher / account no.
-          <input value={search} onChange={(e) => { setSearch(e.target.value); setPage(0) }} placeholder="Search" />
+        <label className="grow">Search
+          <input type="search" value={search} onChange={(e) => { setSearch(e.target.value); setPage(0) }}
+            placeholder="Voucher no., account no., company, amount, collector ref, status…" />
         </label>
       </div>
 
@@ -206,51 +211,28 @@ export default function Pool() {
           {['sent', 'received', 'all'].includes(view) && <button className="btn" disabled={!selected.size} onClick={() => setAction('rejected')}>Mark rejected…</button>}
           {['sent', 'received', 'all'].includes(view) && <button className="btn" disabled={!selected.size} onClick={() => setAction('paid')}>Mark paid…</button>}
           {can('admin') && view !== 'ready' && <button className="btn" disabled={!selected.size} onClick={() => setAction('back')}>Move back…</button>}
+          {selectedRows.some((r) => REMOVABLE.includes(r.status)) && <button className="btn danger" onClick={() => setRemoving(true)}>Remove selected…</button>}
         </div>
       )}
 
-      <div className="table-wrap">
-        <table className="table entry-table pool-table">
-          <thead>
-            <tr>
-              <th><input type="checkbox" checked={pageRows.length > 0 && pageRows.every((r) => selected.has(r.id))}
-                onChange={(e) => setSelected((s) => { const n = new Set(s); pageRows.forEach((r) => (e.target.checked ? n.add(r.id) : n.delete(r.id))); return n })} /></th>
-              <th>Picture</th><th>Collector ref</th><th>Voucher no.</th><th>Account no.</th><th>Company</th>
-              <th className="num">Amount</th><th>Date on voucher</th><th>Status</th><th>Batch</th>
-            </tr>
-          </thead>
-          <tbody>
-            {pageRows.map((r) => (
-              <tr key={r.id} className={selected.has(r.id) ? 'row-selected' : ''}>
-                <td><input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)} /></td>
-                <td>
-                  {thumbs[r.thumb_path || r.image_path]
-                    ? <img className={`thumb zoomable ${bigId === r.id ? 'thumb-big' : ''}`} src={thumbs[r.thumb_path || r.image_path]} alt="Voucher" loading="lazy"
-                        onClick={() => setBigId(bigId === r.id ? null : r.id)} title="Click to enlarge" />
-                    : <div className="thumb" />}
-                </td>
-                <td className="mono"><strong>{r.collector_reference}</strong></td>
-                <td className="mono">{r.voucher_number || '—'}</td>
-                <td className="mono">{r.donor_account || '—'}</td>
-                <td>{companyById[r.company_id]?.name || '—'}</td>
-                <td className="num">{money(r.amount)}</td>
-                <td>{date(r.expiry_date)}{r.date_text && <div className="small muted" dir="auto">{r.date_text}</div>}</td>
-                <td>
-                  <StatusPill status={r.status} />
-                  {r.urgent && ['valid', 'post_dated'].includes(r.status) && <div><span className="flag bad">Urgent – send by {date(r.send_by)}</span></div>}
-                  {r.status === 'post_dated' && r.hold_until && <div className="small warn-text">Can be sent from {date(r.hold_until)}</div>}
-                  {r.status_reason && !r.urgent && r.status !== 'post_dated' && <div className="small muted">{r.status_reason}</div>}
-                  {r.sent_at && <div className="small muted">Sent {date(r.sent_at)}{r.sent_reference ? ` · ref ${r.sent_reference}` : ''}</div>}
-                  {r.paid_at && <div className="small muted">Paid {date(r.paid_at)}</div>}
-                </td>
-                <td><Link to={`/batches/${r.batch_id}`}>#{r.batches?.batch_no}</Link><div className="small muted">{date(r.batches?.received_date)}</div></td>
-              </tr>
-            ))}
-            {!loading && pageRows.length === 0 && <tr><td colSpan={10} className="muted">No vouchers here.</td></tr>}
-            {loading && <tr><td colSpan={10} className="muted">Loading…</td></tr>}
-          </tbody>
-        </table>
-      </div>
+      <VoucherTable
+        rows={pageRows}
+        companies={companies}
+        companyById={companyById}
+        thumbs={thumbs}
+        loading={loading}
+        selected={selected}
+        onSelect={toggle}
+        onSelectAll={(checked) => setSelected((cur) => { const n = new Set(cur); pageRows.forEach((r) => (checked ? n.add(r.id) : n.delete(r.id))); return n })}
+        onRowUpdated={(row) => setRows((list) => list.map((x) => (x.id === row.id ? row : x)))}
+        onChanged={async (msg) => { setNotice(msg); await load() }}
+        onImageError={() => {
+          if (Date.now() - lastRefresh.current < 60000) return // links expired: fetch fresh ones, at most once a minute
+          lastRefresh.current = Date.now()
+          signedUrls(pageRows.map((r) => r.thumb_path || r.image_path)).then(setThumbs)
+        }}
+        empty={search.trim() ? 'No vouchers match your search in this tab. Try the "All validated" tab.' : 'No vouchers here.'}
+      />
 
       {pages > 1 && (
         <div className="row gap">
@@ -258,6 +240,11 @@ export default function Pool() {
           <span className="muted">Page {page + 1} of {pages}</span>
           <button className="btn" disabled={page >= pages - 1} onClick={() => setPage(page + 1)}>Next →</button>
         </div>
+      )}
+
+      {removing && (
+        <RemoveDialog vouchers={selectedRows} onClose={() => setRemoving(false)}
+          onDone={async (msg) => { setRemoving(false); setNotice(msg); await load() }} />
       )}
 
       {action && (

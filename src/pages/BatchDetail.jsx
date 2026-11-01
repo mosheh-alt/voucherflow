@@ -12,6 +12,7 @@ import { useAuth } from '../auth.jsx'
 import { ErrorBox, Modal, Stat, StatusPill } from '../components.jsx'
 import VoucherRow from '../components/VoucherRow.jsx'
 import DuplicateCompare from '../components/DuplicateCompare.jsx'
+import { FILTERS, passesFilter, voucherMatches } from '../lib/search.js'
 import { REMOVABLE, duplicateFields, findDuplicate, removeVoucher, restoreVoucher } from '../lib/duplicates.js'
 
 const ACCEPTED = ['image/jpeg', 'image/png', 'image/webp']
@@ -39,6 +40,8 @@ export default function BatchDetail() {
   const [removeReason, setRemoveReason] = useState('')
   const [removed, setRemoved] = useState([])
   const [showRemoved, setShowRemoved] = useState(false)
+  const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState('')
   const fileInput = useRef(null)
 
   const load = useCallback(async () => {
@@ -247,7 +250,7 @@ export default function BatchDetail() {
     setZoomedId((z) => (z === fromId ? null : z)) // the validated voucher shrinks back
     const i = vouchers.findIndex((x) => x.id === fromId)
     const order = [...vouchers.slice(i + 1), ...vouchers.slice(0, Math.max(i, 0))]
-    const next = order.find((x) => x.status === 'pending' && x.id !== fromId)
+    const next = order.find((x) => x.status === 'pending' && x.id !== fromId && rowRefs.current[x.id])
     if (next) setTimeout(() => rowRefs.current[next.id]?.focus(), 30)
   }
 
@@ -322,6 +325,10 @@ export default function BatchDetail() {
     if (error) setError(error)
     else setBatch({ ...batch, status })
   }
+
+  const shownVouchers = (search.trim() || filter)
+    ? vouchers.filter((v) => passesFilter(v, filter) && voucherMatches(v, search, companyById))
+    : vouchers
 
   if (!batch) return <div className="muted">{error ? <ErrorBox error={error} /> : 'Loading…'}</div>
 
@@ -435,6 +442,26 @@ export default function BatchDetail() {
           Type straight into the rows. Vouchers still to do are shown large next to their boxes; once validated they shrink back. Click any picture to enlarge it. Press <strong>Enter</strong> (or ✓) to validate a voucher and jump to the next one.
         </p>
       )}
+      {vouchers.length > 0 && (
+        <div className="filters search-bar">
+          <label className="grow">Search this batch
+            <input type="search" value={search} onChange={(e) => setSearch(e.target.value)}
+              placeholder="Voucher no., account no., company, amount, status…" />
+          </label>
+          <label>Category
+            <select value={filter} onChange={(e) => setFilter(e.target.value)}>
+              {Object.entries(FILTERS).map(([k, label]) => {
+                const n = k ? vouchers.filter((v) => passesFilter(v, k)).length : vouchers.length
+                return (k && !n) ? null : <option key={k} value={k}>{label} ({n})</option>
+              })}
+            </select>
+          </label>
+          {(search || filter) && (
+            <span className="muted">{shownVouchers.length} of {vouchers.length} shown
+              {' '}<button className="btn-link" onClick={() => { setSearch(''); setFilter('') }}>Show all</button></span>
+          )}
+        </div>
+      )}
       {selectedIds.size > 0 && (
         <div className="action-bar">
           <span><strong>{selectedIds.size}</strong> selected</span>
@@ -461,7 +488,7 @@ export default function BatchDetail() {
             </tr>
           </thead>
           <tbody>
-            {vouchers.map((v) => (
+            {shownVouchers.map((v) => (
               <VoucherRow
                 key={v.id}
                 ref={(el) => { rowRefs.current[v.id] = el }}
@@ -484,6 +511,9 @@ export default function BatchDetail() {
             ))}
             {vouchers.length === 0 && (
               <tr><td colSpan={9} className="muted">No vouchers yet. Upload the scanned images above.</td></tr>
+            )}
+            {vouchers.length > 0 && shownVouchers.length === 0 && (
+              <tr><td colSpan={9} className="muted">No vouchers in this batch match your search.</td></tr>
             )}
           </tbody>
         </table>

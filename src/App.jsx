@@ -1,4 +1,5 @@
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
+import VoucherSearch from './components/VoucherSearch.jsx'
 import { useAuth } from './auth.jsx'
 import { ROLE_LABELS } from './lib/format.js'
 import Login from './pages/Login.jsx'
@@ -39,6 +40,7 @@ export default function App() {
           <NavLink to="/batches">Batches</NavLink>
           <NavLink to="/vouchers">Voucher pool</NavLink>
           <NavLink to="/collectors">Collectors</NavLink>
+          <NavLink to="/search">Find</NavLink>
           <NavLink to="/reports">Reports</NavLink>
           <div className="nav-group">Settings</div>
           <NavLink to="/companies">Companies</NavLink>
@@ -61,6 +63,7 @@ export default function App() {
           <Route path="/companies" element={<Companies />} />
           <Route path="/users" element={can('admin') ? <Users /> : <Navigate to="/" />} />
           <Route path="/reports" element={<Reports />} />
+          <Route path="/search" element={<><div className="page-head"><h1>Find vouchers</h1></div><VoucherSearch /></>} />
           <Route path="/ai" element={<AiReading />} />
           <Route path="/vouchers" element={<Pool />} />
           <Route path="*" element={<Navigate to="/" />} />
