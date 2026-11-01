@@ -146,6 +146,8 @@ export function daysBetween(fromIso, toIso) {
 // (e.g. AAC: "valid for 6 months from the date"), that's the date plus the validity period.
 export function lastValidDate(company, voucherDate) {
   if (!voucherDate) return null
+  // Some companies print only the date the voucher was written; it never expires.
+  if (company && company.date_type === 'written') return null
   if (company && company.date_type === 'issue' && Number(company.validity_months) > 0) {
     return addMonths(voucherDate, company.validity_months)
   }

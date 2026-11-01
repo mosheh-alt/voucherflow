@@ -151,6 +151,7 @@ function CompanyForm({ initial, onClose, onSaved }) {
             <select value={f.date_type || 'expiry'} onChange={(e) => set('date_type', e.target.value)}>
               <option value="expiry">the expiry date (valid until)</option>
               <option value="issue">the issue date (valid for a period from it)</option>
+              <option value="written">just the date it was written (no expiry)</option>
             </select>
           </label>
           {f.date_type === 'issue' ? (
