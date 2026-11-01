@@ -107,15 +107,19 @@ function CompanyForm({ initial, onClose, onSaved }) {
 
         <h3>Barcode rule</h3>
         <p className="muted small">
-          A pattern that recognises this company's barcodes. For barcodes holding more data, name the parts:
-          <code>(?&lt;voucher&gt;…)</code> <code>(?&lt;amount&gt;…)</code> <code>(?&lt;account&gt;…)</code> <code>(?&lt;expiry&gt;…)</code>.
-          Example: <code>{'(?<voucher>\\d{8})(?<amount>\\d{5})(?<expiry>\\d{6})'}</code>. Use the test box to check it.
+          Patterns that recognise this company's barcodes — one per line if the company has several formats.
+          Name the parts the app should fill in: <code>(?&lt;voucher&gt;…)</code>, the amount as{' '}
+          <code>(?&lt;pence&gt;…)</code>, <code>(?&lt;tenths&gt;…)</code> (10p units) or <code>(?&lt;pounds&gt;…)</code>,
+          and optionally <code>(?&lt;account&gt;…)</code> and <code>(?&lt;expiry&gt;…)</code>. Use the test box to check.
         </p>
-        <label>Pattern<input className="mono" value={f.barcode_pattern || ''} onChange={(e) => set('barcode_pattern', e.target.value)} /></label>
+        <label>Pattern(s)
+          <textarea className="mono" rows={3} value={f.barcode_pattern || ''} onChange={(e) => set('barcode_pattern', e.target.value)} />
+        </label>
         <div className="grid2">
-          <label>Amount in barcode is in
+          <label>Amount in (?&lt;amount&gt;) is in
             <select value={f.amount_divisor} onChange={(e) => set('amount_divisor', e.target.value)}>
               <option value={100}>Pence (00500 = £5.00)</option>
+              <option value={10}>10p units (0050 = £5.00)</option>
               <option value={1}>Pounds (5 = £5.00)</option>
             </select>
           </label>

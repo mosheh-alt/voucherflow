@@ -25,7 +25,7 @@ export function compilePattern(pattern) {
 
 export function isValidPattern(pattern) {
   if (!pattern || !pattern.trim()) return true
-  return compilePattern(pattern) !== null
+  return pattern.split(/\r?\n/).map((p) => p.trim()).filter(Boolean).every((p) => compilePattern(p) !== null)
 }
 
 // Convert a barcode date string to ISO yyyy-mm-dd using a format like YYMMDD.
@@ -73,6 +73,24 @@ export function parseBarcodeAmount(value, divisor = 100) {
   return Math.round((n / div) * 100) / 100
 }
 
+// A company can have several barcode formats: one pattern per line.
+export function companyPatterns(company) {
+  return String(company?.barcode_pattern || '')
+    .split(/\r?\n/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+}
+
+// Amount groups: (?<pence>) is in pence, (?<tenths>) in 10p units, (?<pounds>) in pounds,
+// and (?<amount>) uses the company's "amount in barcode" setting.
+function amountFromGroups(g, company) {
+  if (g.pence) return parseBarcodeAmount(g.pence, 100)
+  if (g.tenths) return parseBarcodeAmount(g.tenths, 10)
+  if (g.pounds) return parseBarcodeAmount(g.pounds, 1)
+  if (g.amount) return parseBarcodeAmount(g.amount, company.amount_divisor)
+  return null
+}
+
 // Find the company whose barcode pattern matches, and read any fields it holds.
 // Returns { company, fields: { voucher_number, amount, donor_account, expiry_date }, prefilled }
 export function interpretBarcode(barcode, companies) {
@@ -82,20 +100,31 @@ export function interpretBarcode(barcode, companies) {
     prefilled: false,
   }
   if (!barcode) return result
+  const code = String(barcode).trim()
   for (const company of companies || []) {
     if (company.active === false) continue
-    const re = compilePattern(company.barcode_pattern)
-    if (!re) continue
-    const m = barcode.match(re)
-    if (!m) continue
-    result.company = company
-    const g = m.groups || {}
-    if (g.voucher) result.fields.voucher_number = g.voucher
-    if (g.amount) result.fields.amount = parseBarcodeAmount(g.amount, company.amount_divisor)
-    if (g.account) result.fields.donor_account = g.account
-    if (g.expiry) result.fields.expiry_date = parseBarcodeDate(g.expiry, company.expiry_format)
-    result.prefilled = Boolean(g.amount || g.account || g.expiry)
-    return result
+    for (const pattern of companyPatterns(company)) {
+      const re = compilePattern(pattern)
+      if (!re) continue
+      const m = code.match(re)
+      if (!m) continue
+      const g = m.groups || {}
+      result.company = company
+      if (g.voucher) {
+        // Numeric voucher numbers are stored without leading zeros (03924783 → 3924783).
+        result.fields.voucher_number = /^\d+$/.test(g.voucher) ? g.voucher.replace(/^0+(?=\d)/, '') : g.voucher
+      } else {
+        result.fields.voucher_number = code
+      }
+      result.fields.amount = amountFromGroups(g, company)
+      // An account of all zeros means "no account printed in the barcode".
+      if (g.account && !/^0+$/.test(g.account)) result.fields.donor_account = g.account
+      if (g.expiry) result.fields.expiry_date = parseBarcodeDate(g.expiry, company.expiry_format)
+      result.prefilled = Boolean(
+        result.fields.amount != null || result.fields.donor_account || result.fields.expiry_date
+      )
+      return result
+    }
   }
   return result
 }

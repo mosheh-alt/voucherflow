@@ -66,11 +66,11 @@ code { background: #eef0f3; padding: 1px 5px; border-radius: 4px; font-size: 12p
 .card.narrow { width: 100%; max-width: 380px; }
 label { display: block; margin: 10px 0; font-weight: 500; }
 label > input, label > select { margin-top: 4px; }
-input, select {
+input, select, textarea {
   width: 100%; padding: 8px 10px; border: 1px solid #c9cfd8; border-radius: 6px;
   font: inherit; background: #fff; color: var(--text);
 }
-input:focus, select:focus { outline: 2px solid #9cc3e2; border-color: var(--primary); }
+input:focus, select:focus, textarea:focus { outline: 2px solid #9cc3e2; border-color: var(--primary); }
 input:disabled, select:disabled { background: #f1f3f5; }
 input.inline { padding: 4px 6px; }
 label.check { display: flex; align-items: center; gap: 8px; font-weight: 400; }
