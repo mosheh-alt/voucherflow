@@ -84,6 +84,11 @@ export function companyPatterns(company) {
 // Amount groups: (?<pence>) is in pence, (?<tenths>) in 10p units, (?<pounds>) in pounds,
 // and (?<amount>) uses the company's "amount in barcode" setting.
 function amountFromGroups(g, company) {
+  // A code that stands for a fixed amount (e.g. Miffal: 04 = £3), looked up in the company's amount codes.
+  if (g.amountcode) {
+    const v = company.amount_codes?.[g.amountcode]
+    return v === undefined || v === null || v === '' ? null : Number(v)
+  }
   if (g.pence) return parseBarcodeAmount(g.pence, 100)
   if (g.tenths) return parseBarcodeAmount(g.tenths, 10)
   if (g.pounds) return parseBarcodeAmount(g.pounds, 1)
@@ -110,6 +115,8 @@ export function interpretBarcode(barcode, companies) {
       if (!m) continue
       const g = m.groups || {}
       result.company = company
+      // Some barcodes hold the voucher number in two parts (e.g. Miffal): (?<voucher1>…) + (?<voucher2>…)
+      if (!g.voucher && g.voucher1) g.voucher = `${g.voucher1}${g.voucher2 || ''}`
       if (g.voucher) {
         // Numeric voucher numbers are stored without leading zeros (03924783 → 3924783).
         result.fields.voucher_number = /^\d+$/.test(g.voucher) ? g.voucher.replace(/^0+(?=\d)/, '') : g.voucher

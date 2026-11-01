@@ -9,7 +9,17 @@ import { ErrorBox, Modal } from '../components.jsx'
 const EMPTY = {
   name: '', submission_method: 'physical', report_email: '', portal_url: '', address: '',
   barcode_pattern: '', amount_divisor: 100, expiry_format: 'YYMMDD', accepted: true, active: true, notes: '',
-  date_type: 'written', validity_months: '', urgent_days: 3, ai_hints: '', ai_crop: [],
+  date_type: 'written', validity_months: '', urgent_days: 3, ai_hints: '', ai_crop: [], amount_codes: null,
+}
+
+// "03=2, 04=3" → { "03": 2, "04": 3 }
+function parseCodes(text) {
+  const out = {}
+  for (const part of String(text || '').split(/[,;\n]/)) {
+    const [k, v] = part.split('=').map((x) => x && x.trim())
+    if (k && v && !Number.isNaN(Number(v))) out[k] = Number(v)
+  }
+  return Object.keys(out).length ? out : null
 }
 
 export default function Companies() {
@@ -61,11 +71,14 @@ function CompanyForm({ initial, onClose, onSaved }) {
   const [f, setF] = useState({ ...EMPTY, ...initial })
   const [error, setError] = useState(null)
   const [testBarcode, setTestBarcode] = useState('')
+  const [codesText, setCodesText] = useState(
+    initial.amount_codes ? Object.entries(initial.amount_codes).map(([k, v]) => `${k}=${v}`).join(', ') : ''
+  )
   const isNew = !initial.id
   const set = (k, v) => setF({ ...f, [k]: v })
 
   const test = testBarcode.trim()
-    ? interpretBarcode(testBarcode.trim(), [{ ...f, active: true }])
+    ? interpretBarcode(testBarcode.trim(), [{ ...f, amount_codes: parseCodes(codesText), active: true }])
     : null
 
   async function save(e) {
@@ -87,6 +100,7 @@ function CompanyForm({ initial, onClose, onSaved }) {
       validity_months: f.date_type === 'issue' && f.validity_months !== '' ? Number(f.validity_months) : null,
       urgent_days: f.urgent_days === '' ? 3 : Number(f.urgent_days),
       ai_hints: f.ai_hints?.trim() || null,
+      amount_codes: parseCodes(codesText),
       ai_crop: f.ai_crop?.length ? f.ai_crop : null,
       notes: f.notes?.trim() || null,
     }
@@ -136,6 +150,9 @@ function CompanyForm({ initial, onClose, onSaved }) {
             </select>
           </label>
         </div>
+        <label>Amount codes <span className="muted">(only if the barcode holds a code instead of the amount, e.g. 03=2, 04=3, 05=5)</span>
+          <input className="mono" value={codesText} onChange={(e) => setCodesText(e.target.value)} placeholder="code=£, code=£ …" />
+        </label>
         <label>Test a barcode<input className="mono" value={testBarcode} onChange={(e) => setTestBarcode(e.target.value)} placeholder="Paste or type a real barcode value" /></label>
         {test && (
           test.company ? (
