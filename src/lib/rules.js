@@ -68,6 +68,8 @@ export function parseBarcodeAmount(value, divisor = 100) {
   const n = Number(s.replace(/\D/g, ''))
   if (!Number.isFinite(n)) return null
   const div = Number(divisor) || 1
+  // An amount of zero in the barcode means "amount written by hand" (open voucher).
+  if (n === 0) return null
   return Math.round((n / div) * 100) / 100
 }
 
