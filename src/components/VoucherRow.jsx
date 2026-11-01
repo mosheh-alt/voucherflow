@@ -214,6 +214,9 @@ const VoucherRow = forwardRef(function VoucherRow(
         {v.status_reason && <div className="muted small">{v.status_reason}</div>}
         <div className="flags">
           {!v.barcode_read && <span className="flag warn">No barcode</span>}
+          {v.barcode_read && !v.company_id && v.status === 'pending' && (
+            <span className="flag warn" title={`Barcode read: ${v.barcode_raw}`}>Barcode not recognised: {v.barcode_raw}</span>
+          )}
           {v.possible_duplicate && <span className="flag bad">Duplicate?</span>}
           {v.prefilled && v.status === 'pending' && <span className="flag info">Prefilled</span>}
           {v.urgent && v.status === 'valid' && <span className="flag bad">Urgent – send by {date(v.send_by)}</span>}

@@ -1,15 +1,18 @@
 // Reads a barcode from an uploaded voucher image, in the browser.
 // If the first attempt fails, it retries on zoomed-in parts of the image, sideways,
 // and with a second image-cleaning method — this catches small or rotated barcodes.
-import {
+import * as ZXing from '@zxing/library'
+
+const {
   BarcodeFormat,
   BinaryBitmap,
+  BrowserMultiFormatReader,
   DecodeHintType,
   GlobalHistogramBinarizer,
-  HTMLCanvasElementLuminanceSource,
   HybridBinarizer,
   MultiFormatReader,
-} from '@zxing/library'
+  RGBLuminanceSource,
+} = ZXing
 
 const FORMATS = [
   BarcodeFormat.CODE_128, BarcodeFormat.CODE_39, BarcodeFormat.CODE_93, BarcodeFormat.ITF,
@@ -86,20 +89,62 @@ function drawArea(img, [fx, fy, fw, fh], rotate) {
   return canvas
 }
 
+// Turns a canvas into the grey-scale picture the barcode decoder works on.
+function luminanceFrom(canvas) {
+  const { width, height } = canvas
+  const rgba = canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, width, height).data
+  const grey = new Uint8ClampedArray(width * height)
+  for (let i = 0, j = 0; j < grey.length; i += 4, j++) {
+    grey[j] = (rgba[i] * 306 + rgba[i + 1] * 601 + rgba[i + 2] * 117) >> 10
+  }
+  return new RGBLuminanceSource(grey, width, height)
+}
+
+let warned = false
 function tryCanvas(canvas) {
   const r = getReader()
+  let source
+  try {
+    source = luminanceFrom(canvas)
+  } catch (e) {
+    if (!warned) { console.warn('Barcode reader: could not prepare image', e); warned = true }
+    return null
+  }
   for (const Binarizer of [HybridBinarizer, GlobalHistogramBinarizer]) {
     try {
-      const source = new HTMLCanvasElementLuminanceSource(canvas)
       const result = r.decodeWithState(new BinaryBitmap(new Binarizer(source)))
       if (result && result.getText()) return result.getText()
-    } catch {
-      /* not found in this attempt */
+    } catch (e) {
+      // "NotFoundException" just means no barcode in this attempt; anything else is worth knowing about.
+      if (!warned && e && !/NotFound|Checksum|Format/i.test(e.name || e.constructor?.name || '')) {
+        console.warn('Barcode reader error', e)
+        warned = true
+      }
     } finally {
       r.reset()
     }
   }
   return null
+}
+
+// The simple reader used in the first version, kept as a last resort.
+let simpleReader = null
+async function trySimple(file) {
+  if (!BrowserMultiFormatReader) return null
+  if (!simpleReader) {
+    const hints = new Map()
+    hints.set(DecodeHintType.TRY_HARDER, true)
+    simpleReader = new BrowserMultiFormatReader(hints)
+  }
+  const url = URL.createObjectURL(file)
+  try {
+    const result = await simpleReader.decodeFromImageUrl(url)
+    return result ? result.getText() : null
+  } catch {
+    return null
+  } finally {
+    URL.revokeObjectURL(url)
+  }
 }
 
 // Gives the browser a moment between attempts so the page stays responsive.
@@ -111,7 +156,7 @@ export async function readBarcode(file) {
   try {
     img = await loadImage(file)
   } catch {
-    return null
+    return (await trySimple(file))?.trim() || null
   }
   try {
     for (const rotate of [false, true]) {
@@ -121,8 +166,8 @@ export async function readBarcode(file) {
         await breathe()
       }
     }
-    return null
   } finally {
     if (typeof img.close === 'function') img.close()
   }
+  return (await trySimple(file))?.trim() || null
 }
