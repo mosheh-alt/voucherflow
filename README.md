@@ -37,6 +37,8 @@ Run each update file in `supabase/` once, in number order, the same way as the s
 - `005_ai_reading.sql` — AI reading: stored AI guesses, on/off switch, accuracy figures
 - `006_written_date.sql` — two date types (AAC: valid 6 months from date; others: date written, no expiry) and post-dated vouchers
 - `007_ai_hints_hebrew_dates.sql` — AI hints and close-ups per company, Hebrew date text
+- `008_sending_receiving.sql` — voucher pool: sent / received / paid details
+- `fix_missing_columns.sql` — catch-up: adds anything from 004–008 that is missing
 
 ### 1c. AI reading function
 Supabase → Edge Functions: secret `ANTHROPIC_API_KEY`, and a function `read-voucher` with the code in `supabase/functions/read-voucher/index.ts`.

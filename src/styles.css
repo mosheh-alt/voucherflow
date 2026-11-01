@@ -257,3 +257,8 @@ input.cell.suggested { background: var(--info-bg); border-color: #9cc3e2; }
 .row-selected td { background: var(--info-bg) !important; }
 .pool-table .thumb { width: 110px; height: 60px; }
 .pool-table .thumb.thumb-big { width: min(460px, 38vw); height: auto; }
+.pool-banner { display: flex; justify-content: space-between; align-items: center; gap: 12px; background: #fff; border: 1px solid var(--line); border-left: 4px solid var(--primary); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 14px; color: var(--text); }
+.pool-banner:hover { text-decoration: none; background: #f8fbfd; }
+.stat-link { color: inherit; }
+.stat-link:hover { text-decoration: none; }
+.stat-link .stat:hover { border-color: var(--primary); }

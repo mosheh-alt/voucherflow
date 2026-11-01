@@ -4,6 +4,12 @@ import { supabase } from '../lib/supabase.js'
 import { STATUS_LABELS, STATUS_ORDER, collectorLabel, date } from '../lib/format.js'
 import { ErrorBox, Stat } from '../components.jsx'
 
+// Which pool tab each dashboard tile opens (pending vouchers live in their batches).
+const POOL_VIEW = {
+  valid: 'ready', post_dated: 'post_dated', not_valid: 'not_valid', sent: 'sent',
+  received_success: 'received', received_pending: 'received', rejected: 'rejected', paid: 'paid',
+}
+
 export default function Dashboard() {
   const [counts, setCounts] = useState({})
   const [batches, setBatches] = useState([])
@@ -43,10 +49,21 @@ export default function Dashboard() {
         <Link className="btn primary" to="/batches?new=1">New batch</Link>
       </div>
       <ErrorBox error={error} />
+      <Link to="/vouchers" className="pool-banner">
+        <div>
+          <strong>Voucher pool</strong>
+          <div className="muted small">All validated vouchers from every batch — send, receive and track them here</div>
+        </div>
+        <span className="btn primary">Open the pool →</span>
+      </Link>
       <div className="stats">
-        {STATUS_ORDER.filter((s) => s !== 'cancelled').map((s) => (
-          <Stat key={s} label={STATUS_LABELS[s]} value={counts[s] ?? '…'} />
-        ))}
+        {STATUS_ORDER.filter((s) => s !== 'cancelled').map((s) => {
+          const link = POOL_VIEW[s]
+          const tile = <Stat label={STATUS_LABELS[s]} value={counts[s] ?? '…'} />
+          return link
+            ? <Link key={s} to={`/vouchers?view=${link}`} className="stat-link">{tile}</Link>
+            : <Link key={s} to="/batches" className="stat-link">{tile}</Link>
+        })}
       </div>
       <h2>Open batches</h2>
       {batches.length === 0 ? (
