@@ -25,7 +25,7 @@ export default function BatchDetail() {
   const [progress, setProgress] = useState(null) // { done, total, current }
   const [dragging, setDragging] = useState(false)
   const [recheckOpen, setRecheckOpen] = useState(false)
-  const [zoomed, setZoomed] = useState(null) // voucher whose picture is enlarged
+  const [zoomedId, setZoomedId] = useState(null) // voucher whose picture is shown enlarged under its row
   const rowRefs = useRef({})
   const fileInput = useRef(null)
 
@@ -174,14 +174,6 @@ export default function BatchDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batch?.id, companiesLoaded])
 
-  // Close the enlarged picture with Esc.
-  useEffect(() => {
-    if (!zoomed) return
-    const onKey = (e) => { if (e.key === 'Escape') setZoomed(null) }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [zoomed])
-
   const companyById = useMemo(() => Object.fromEntries(companies.map((c) => [c.id, c])), [companies])
 
   function onRowUpdated(updated) {
@@ -193,12 +185,17 @@ export default function BatchDetail() {
     const i = vouchers.findIndex((x) => x.id === fromId)
     const order = [...vouchers.slice(i + 1), ...vouchers.slice(0, Math.max(i, 0))]
     const next = order.find((x) => x.status === 'pending' && x.id !== fromId)
+    // If a picture was open, open the next voucher's picture instead, so you can keep reading and typing.
+    setZoomedId((z) => (z ? next?.id ?? null : null))
     if (next) setTimeout(() => rowRefs.current[next.id]?.focus(), 30)
   }
 
   function startValidating() {
     const first = vouchers.find((x) => x.status === 'pending')
-    if (first) rowRefs.current[first.id]?.focus()
+    if (first) {
+      setZoomedId(first.id)
+      setTimeout(() => rowRefs.current[first.id]?.focus(), 30)
+    }
   }
 
   async function setBatchStatus(status) {
@@ -304,7 +301,7 @@ export default function BatchDetail() {
 
       {vouchers.length > 0 && (
         <p className="muted small">
-          Type straight into the rows. Click a picture to enlarge it. Press <strong>Enter</strong> (or ✓) to validate a voucher and jump to the next one.
+          Type straight into the rows. Click a picture to show it large under its row — you can keep typing while it's open. Press <strong>Enter</strong> (or ✓) to validate a voucher and jump to the next one.
         </p>
       )}
       <div className="table-wrap">
@@ -325,7 +322,8 @@ export default function BatchDetail() {
                 companies={companies}
                 companyById={companyById}
                 thumb={thumbs[v.image_path]}
-                onZoom={setZoomed}
+                expanded={zoomedId === v.id}
+                onToggleImage={(id) => setZoomedId((z) => (z === id ? null : id))}
                 onUpdated={onRowUpdated}
                 onNext={focusNextPending}
                 canEdit={can('admin', 'batch_entry', 'reconciler')}
@@ -338,14 +336,6 @@ export default function BatchDetail() {
         </table>
       </div>
 
-      {zoomed && (
-        <div className="lightbox" onClick={() => setZoomed(null)}>
-          <img src={thumbs[zoomed.image_path]} alt="Voucher" />
-          <div className="lightbox-caption">
-            {zoomed.voucher_number || 'No voucher number'} · click anywhere or press Esc to close
-          </div>
-        </div>
-      )}
     </>
   )
 }

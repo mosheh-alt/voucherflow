@@ -27,7 +27,7 @@ function clean(d) {
 // One voucher row on the batch page, with the data entered directly in the row.
 // Leaving a box saves it; Enter (or ✓) validates the voucher and jumps to the next one.
 const VoucherRow = forwardRef(function VoucherRow(
-  { v, batch, companies, companyById, thumb, onZoom, onUpdated, onNext, canEdit },
+  { v, batch, companies, companyById, thumb, expanded, onToggleImage, onUpdated, onNext, canEdit },
   ref
 ) {
   const { session } = useAuth()
@@ -58,7 +58,7 @@ const VoucherRow = forwardRef(function VoucherRow(
       if (!d.voucher_number) numberRef.current?.focus()
       else if (!d.company_id) companyRef.current?.focus()
       else amountRef.current?.select()
-      numberRef.current?.closest('tr')?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      numberRef.current?.closest('tr')?.scrollIntoView({ block: 'start', behavior: 'smooth' })
     },
   }))
 
@@ -131,10 +131,11 @@ const VoucherRow = forwardRef(function VoucherRow(
   }
 
   return (
+    <>
     <tr className={problem ? 'row-problem' : v.status === 'pending' ? 'row-pending' : ''}>
       <td>
         {thumb
-          ? <img className="thumb zoomable" src={thumb} alt="Voucher" title="Click to enlarge" onClick={() => onZoom(v)} />
+          ? <img className={`thumb zoomable ${expanded ? "thumb-open" : ""}`} src={thumb} alt="Voucher" title={expanded ? "Click to make smaller" : "Click to enlarge"} onClick={() => onToggleImage(v.id)} />
           : <div className="thumb" />}
       </td>
       <td>
@@ -178,6 +179,14 @@ const VoucherRow = forwardRef(function VoucherRow(
         )}
       </td>
     </tr>
+    {expanded && thumb && (
+      <tr className="preview-row">
+        <td colSpan={8}>
+          <img src={thumb} alt="Voucher enlarged" title="Click to make smaller" onClick={() => onToggleImage(v.id)} />
+        </td>
+      </tr>
+    )}
+    </>
   )
 })
 
