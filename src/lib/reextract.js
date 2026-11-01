@@ -2,6 +2,7 @@
 import { supabase } from './supabase.js'
 import { readBarcode } from './barcode.js'
 import { interpretBarcode } from './rules.js'
+import { suggestCompany } from './companyGuess.js'
 
 // Returns { barcode, company, fields, prefilled }; barcode is null if none could be read.
 export async function reextract(voucher, companies) {
@@ -13,13 +14,20 @@ export async function reextract(voucher, companies) {
   // If the image can't be read now, fall back to the barcode read at upload (rules may have changed).
   if (!barcode) barcode = voucher.barcode_raw || null
   const { company, fields, prefilled } = interpretBarcode(barcode, companies)
-  return { barcode, company, fields, prefilled }
+  // No company rule matched: the number history may still know the company.
+  const history = !company && !voucher.company_id && fields.voucher_number ? await suggestCompany(fields.voucher_number) : null
+  return { barcode, company, fields, prefilled, history }
 }
 
 // Database changes from a re-extraction: everything the barcode provides replaces what was there.
-export function reextractPatch({ barcode, company, fields, prefilled }) {
+export function reextractPatch({ barcode, company, fields, prefilled, history }) {
   if (!barcode) return null
   const patch = { barcode_raw: barcode, barcode_read: true, prefilled }
+  if (!company && history) {
+    patch.voucher_number = fields.voucher_number
+    patch.company_id = history.company_id
+    patch.company_hint = { state: 'history', history }
+  }
   if (company) {
     patch.company_id = company.id
     patch.voucher_number = fields.voucher_number

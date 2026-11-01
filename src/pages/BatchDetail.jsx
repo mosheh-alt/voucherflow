@@ -7,6 +7,7 @@ import { collectorLabel, date, money } from '../lib/format.js'
 import { takePendingFiles } from '../lib/pending.js'
 import { reextract, reextractPatch } from '../lib/reextract.js'
 import { aiEnabled, aiReadMany } from '../lib/ai.js'
+import { suggestCompany, historyPatch } from '../lib/companyGuess.js'
 import { useAuth } from '../auth.jsx'
 import { ErrorBox, Stat, StatusPill } from '../components.jsx'
 import VoucherRow from '../components/VoucherRow.jsx'
@@ -29,6 +30,8 @@ export default function BatchDetail() {
   const [aiOn, setAiOn] = useState(false)
   const [zoomedId, setZoomedId] = useState(null) // voucher whose picture is shown enlarged under its row
   const rowRefs = useRef({})
+  const [selectedIds, setSelectedIds] = useState(new Set())
+  const [bulkCompany, setBulkCompany] = useState('')
   const fileInput = useRef(null)
 
   const load = useCallback(async () => {
@@ -139,6 +142,9 @@ export default function BatchDetail() {
         const { error: upErr } = await supabase.storage.from('vouchers').upload(path, file, { contentType: file.type })
         if (upErr) throw upErr
 
+        // Plain-number voucher with no company rule: ask the number history.
+        let hist = null
+        if (!company && fields.voucher_number) hist = historyPatch({}, await suggestCompany(fields.voucher_number))
         const { data: inserted, error: insErr } = await supabase.from('vouchers').insert({
           batch_id: batch.id,
           collector_id: batch.collector_id,
@@ -154,6 +160,7 @@ export default function BatchDetail() {
           expiry_date: fields.expiry_date,
           prefilled,
           possible_duplicate: duplicate,
+          ...(hist || {}),
         }).select().single()
         if (insErr) throw insErr
         aiItems.push({ voucher: inserted, blob: file })
@@ -227,6 +234,20 @@ export default function BatchDetail() {
     const order = [...vouchers.slice(i + 1), ...vouchers.slice(0, Math.max(i, 0))]
     const next = order.find((x) => x.status === 'pending' && x.id !== fromId)
     if (next) setTimeout(() => rowRefs.current[next.id]?.focus(), 30)
+  }
+
+  // Sets the same company on all selected vouchers that can still be edited.
+  async function setCompanyForSelected() {
+    const ids = vouchers.filter((x) => selectedIds.has(x.id) && ['pending', 'valid', 'post_dated', 'not_valid'].includes(x.status)).map((x) => x.id)
+    if (!ids.length || !bulkCompany) return
+    for (let i = 0; i < ids.length; i += 200) {
+      const { error } = await supabase.from('vouchers').update({ company_id: bulkCompany }).in('id', ids.slice(i, i + 200))
+      if (error) { setError(error); return }
+    }
+    setError(`Company set on ${ids.length} voucher(s).`)
+    setSelectedIds(new Set())
+    setBulkCompany('')
+    await load()
   }
 
   function startValidating() {
@@ -346,10 +367,26 @@ export default function BatchDetail() {
           Type straight into the rows. Vouchers still to do are shown large next to their boxes; once validated they shrink back. Click any picture to enlarge it. Press <strong>Enter</strong> (or ✓) to validate a voucher and jump to the next one.
         </p>
       )}
+      {selectedIds.size > 0 && (
+        <div className="action-bar">
+          <span><strong>{selectedIds.size}</strong> selected</span>
+          <label className="inline-label">Set company
+            <select value={bulkCompany} onChange={(e) => setBulkCompany(e.target.value)}>
+              <option value="">— choose —</option>
+              {companies.filter((c) => c.active !== false).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </label>
+          <button className="btn primary" disabled={!bulkCompany} onClick={setCompanyForSelected}>Apply to selected</button>
+          <button className="btn" onClick={() => setSelectedIds(new Set())}>Clear selection</button>
+        </div>
+      )}
       <div className="table-wrap">
         <table className="table entry-table">
           <thead>
             <tr>
+              <th><input type="checkbox" aria-label="Select all"
+                checked={vouchers.length > 0 && vouchers.filter((x) => x.status === 'pending').every((x) => selectedIds.has(x.id)) && selectedIds.size > 0}
+                onChange={(e) => setSelectedIds(e.target.checked ? new Set(vouchers.filter((x) => x.status === 'pending').map((x) => x.id)) : new Set())} /></th>
               <th>Picture</th><th>Voucher no.</th><th>Account no.</th><th>Company</th><th className="num">Amount</th>
               <th>Date on voucher</th><th>Status</th><th></th>
             </tr>
@@ -369,10 +406,12 @@ export default function BatchDetail() {
                 onUpdated={onRowUpdated}
                 onNext={focusNextPending}
                 canEdit={can('admin', 'batch_entry', 'reconciler')}
+                selected={selectedIds.has(v.id)}
+                onSelect={(id) => setSelectedIds((cur) => { const n = new Set(cur); if (n.has(id)) n.delete(id); else n.add(id); return n })}
               />
             ))}
             {vouchers.length === 0 && (
-              <tr><td colSpan={8} className="muted">No vouchers yet. Upload the scanned images above.</td></tr>
+              <tr><td colSpan={9} className="muted">No vouchers yet. Upload the scanned images above.</td></tr>
             )}
           </tbody>
         </table>

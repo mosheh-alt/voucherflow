@@ -38,6 +38,7 @@ Run each update file in `supabase/` once, in number order, the same way as the s
 - `006_written_date.sql` — two date types (AAC: valid 6 months from date; others: date written, no expiry) and post-dated vouchers
 - `007_ai_hints_hebrew_dates.sql` — AI hints and close-ups per company, Hebrew date text
 - `008_sending_receiving.sql` — voucher pool: sent / received / paid details
+- `009_company_from_number.sql` — recognise the company from the voucher number (number history + patterns, loaded from the London sheet)
 - `fix_missing_columns.sql` — catch-up: adds anything from 004–008 that is missing
 
 ### 1c. AI reading function

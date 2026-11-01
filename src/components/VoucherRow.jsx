@@ -35,7 +35,7 @@ function clean(d) {
 // One voucher row on the batch page, with the data entered directly in the row.
 // Leaving a box saves it; Enter (or ✓) validates the voucher and jumps to the next one.
 const VoucherRow = forwardRef(function VoucherRow(
-  { v, batch, companies, companyById, thumb, expanded, onToggleImage, onUpdated, onNext, canEdit },
+  { v, batch, companies, companyById, thumb, expanded, onToggleImage, onUpdated, onNext, canEdit, selected, onSelect },
   ref
 ) {
   const { session } = useAuth()
@@ -96,6 +96,21 @@ const VoucherRow = forwardRef(function VoucherRow(
   // Boxes the AI filled in and nobody has changed yet are shown in a different colour.
   const aiFilled = v.status === 'pending' ? (v.ai_data?.filled || []) : []
   const aiCls = (field) => (aiFilled.includes(field) && String(d[field] ?? '') === String(v[field] ?? '') ? ' ai' : '')
+
+  // What the number history and the AI said about the company (only while pending).
+  const hint = v.status === 'pending' ? v.company_hint : null
+  const companyUnchanged = String(d.company_id || '') === String(v.company_id || '')
+  const companyCls = hint && companyUnchanged && v.company_id && ['history', 'agree'].includes(hint.state)
+    ? (hint.state === 'agree' ? ' agreed' : ' suggested') : ''
+
+  async function pickCompany(id) {
+    setD((x) => ({ ...x, company_id: id }))
+    try {
+      await update({ company_id: id, company_hint: { ...v.company_hint, state: 'chosen', chosen: id } })
+    } catch (e) {
+      setProblem(e.message)
+    }
+  }
 
   // Live check of the date on the voucher, so problems show before validating.
   const dateCheck = (() => {
@@ -197,7 +212,8 @@ const VoucherRow = forwardRef(function VoucherRow(
   }
 
   return (
-    <tr onFocus={suggestAccount} className={problem ? 'row-problem' : v.status === 'pending' ? 'row-pending' : ''}>
+    <tr onFocus={suggestAccount} className={(problem ? 'row-problem' : v.status === 'pending' ? 'row-pending' : '') + (selected ? ' row-selected' : '')}>
+      <td><input type="checkbox" checked={Boolean(selected)} onChange={() => onSelect(v.id)} aria-label="Select voucher" /></td>
       <td>
         {thumb
           ? <img className={`thumb zoomable ${pictureSize}`} src={thumb} alt="Voucher" loading="lazy" title={expanded ? "Click to make smaller" : "Click to enlarge"} onClick={() => onToggleImage(v.id)} />
@@ -221,7 +237,7 @@ const VoucherRow = forwardRef(function VoucherRow(
       </td>
       <td>
         {editable ? (
-          <select ref={companyRef} className={"cell" + aiCls("company_id")} value={d.company_id} onChange={(e) => set('company_id', e.target.value)} onBlur={saveField} onKeyDown={onKey}>
+          <select ref={companyRef} className={"cell" + aiCls("company_id") + companyCls} value={d.company_id} onChange={(e) => set('company_id', e.target.value)} onBlur={saveField} onKeyDown={onKey}>
             <option value="">— company —</option>
             {companies.filter((c) => c.active !== false || c.id === d.company_id).map((c) => (
               <option key={c.id} value={c.id}>{c.name}{c.active === false ? ' (inactive)' : ''}</option>
@@ -268,6 +284,23 @@ const VoucherRow = forwardRef(function VoucherRow(
           {v.possible_duplicate && <span className="flag bad">Duplicate?</span>}
           {v.prefilled && v.status === 'pending' && <span className="flag info">Prefilled</span>}
           {aiFilled.length > 0 && <span className="flag ai-flag" title="Filled in by AI — please check against the picture">AI – check</span>}
+          {hint?.state === 'agree' && companyUnchanged && <span className="flag ok-flag">Company: number history + AI agree</span>}
+          {hint?.state === 'history' && companyUnchanged && v.company_id && (
+            <span className="flag info" title={hint.history?.from ? `Nearest known voucher: ${hint.history.from}` : 'From the number pattern'}>
+              Company suggested {hint.history?.method === 'nearest' ? `from voucher ${hint.history.from}` : 'from number pattern'}
+            </span>
+          )}
+          {hint?.state === 'conflict' && !d.company_id && (
+            <span className="pick-company">
+              <span className="flag warn">Check company — which is it?</span>
+              {[hint.history?.company_id, hint.ai].filter(Boolean).map((id, i) => (
+                <button key={id} type="button" className="btn small-btn" onClick={() => pickCompany(id)}
+                  title={i === 0 ? 'Number history' : 'AI reading the voucher'}>
+                  {companyById[id]?.name || 'Unknown'} <span className="muted">({i === 0 ? 'number' : 'AI'})</span>
+                </button>
+              ))}
+            </span>
+          )}
           {v.urgent && v.status === 'valid' && <span className="flag bad">Urgent – send by {date(v.send_by)}</span>}
         </div>
         {problem && <div className="bad-text small">{problem}</div>}

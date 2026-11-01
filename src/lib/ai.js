@@ -3,6 +3,7 @@
 // validated until a person presses ✓.
 import { supabase } from './supabase.js'
 import { parseHebrewDate } from './hebrewDate.js'
+import { combineWithAi } from './companyGuess.js'
 
 export async function aiEnabled() {
   const { data } = await supabase.from('app_settings').select('value').eq('key', 'ai_reading').maybeSingle()
@@ -114,6 +115,7 @@ export function aiPatch(voucher, ai) {
 
 // After a quick first read, decide whether a second, stronger read is worthwhile.
 function stillMissing(after, company) {
+  if (after.company_hint?.state === 'conflict') return false // a person will choose the company
   if (!after.company_id) return true
   if (after.amount === null || after.amount === undefined) return true
   if (!after.donor_account && (company?.ai_hints || company?.ai_crop?.length)) return true
@@ -123,11 +125,15 @@ function stillMissing(after, company) {
 // Reads one voucher: quick model first, stronger model only if something important is still missing.
 async function readOne(voucher, blob, companies) {
   const byId = Object.fromEntries(companies.map((c) => [c.id, c]))
-  let company = byId[voucher.company_id] || null
+  // A company only suggested by the number history is NOT told to the AI, so the AI gives
+  // an independent second opinion.
+  const fromHistory = voucher.company_hint?.state === 'history' && voucher.company_id === voucher.company_hint?.history?.company_id
+  let company = fromHistory ? null : byId[voucher.company_id] || null
   const first = await aiReadImage(blob, companies, { company })
   let patch = aiPatch(voucher, first)
+  if (fromHistory) Object.assign(patch, combineWithAi(voucher, first.company_id))
   let after = { ...voucher, ...patch }
-  company = company || byId[after.company_id] || null
+  company = company || (after.company_hint?.state !== 'conflict' ? byId[after.company_id] : null) || null
   if (stillMissing(after, company)) {
     try {
       const second = await aiReadImage(blob, companies, { company, strong: true })

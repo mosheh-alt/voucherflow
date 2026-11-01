@@ -262,3 +262,9 @@ input.cell.suggested { background: var(--info-bg); border-color: #9cc3e2; }
 .stat-link { color: inherit; }
 .stat-link:hover { text-decoration: none; }
 .stat-link .stat:hover { border-color: var(--primary); }
+.cell.suggested { background: var(--info-bg); border-color: #9cc3e2; }
+.cell.agreed { background: var(--ok-bg); border-color: #9fd3b1; }
+.flag.ok-flag { background: var(--ok-bg); color: var(--ok); }
+.pick-company { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 2px; }
+.small-btn { padding: 3px 8px; font-size: 12px; }
+.inline-label { display: flex; align-items: center; gap: 6px; margin: 0; font-weight: 500; } .inline-label select { width: 220px; margin: 0; }
