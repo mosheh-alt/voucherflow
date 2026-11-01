@@ -42,6 +42,7 @@ Run each update file in `supabase/` once, in number order, the same way as the s
 - `010_duplicates.sql` — duplicates linked to the voucher they match; removing and restoring vouchers
 - `011_miffal_barcodes.sql` — Miffal barcode rule (voucher number in two parts, amount code)
 - `012_cosmon_belz.sql` — Cosmon Belz: dummy barcode ignored, AI hints for the printed voucher number
+- `013_small_pictures.sql` — small copies of voucher pictures for fast pages
 - `fix_missing_columns.sql` — catch-up: adds anything from 004–008 that is missing
 
 ### 1c. AI reading function

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { supabase, fetchAll, signedUrls } from '../lib/supabase.js'
+import { supabase, fetchAll, signedUrls, storeThumbnail } from '../lib/supabase.js'
 import { readBarcode } from '../lib/barcode.js'
 import { interpretBarcode } from '../lib/rules.js'
 import { collectorLabel, date, money } from '../lib/format.js'
@@ -58,7 +58,8 @@ export default function BatchDetail() {
         .select('id, voucher_number, company_id, amount, deleted_at, deleted_reason')
         .eq('batch_id', id).not('deleted_at', 'is', null).order('deleted_at', { ascending: false })
       setRemoved(gone || [])
-      setThumbs(await signedUrls(rows.map((v) => v.image_path)))
+      // Small copies where they exist (fast), otherwise the original picture.
+      setThumbs(await signedUrls(rows.map((v) => v.thumb_path || v.image_path)))
     } catch (e) {
       setError(e)
     }
@@ -150,7 +151,8 @@ export default function BatchDetail() {
         // Plain-number voucher with no company rule: ask the number history.
         let hist = null
         if (!company && fields.voucher_number) hist = historyPatch({}, await suggestCompany(fields.voucher_number))
-        const { data: inserted, error: insErr } = await supabase.from('vouchers').insert({
+        const thumbPath = await storeThumbnail(batch.id, file)
+        const newRow = {
           batch_id: batch.id,
           collector_id: batch.collector_id,
           collector_reference: batch.collector_reference,
@@ -166,7 +168,14 @@ export default function BatchDetail() {
           prefilled,
           ...duplicateFields(duplicateOf),
           ...(hist || {}),
-        }).select().single()
+          ...(thumbPath ? { thumb_path: thumbPath } : {}),
+        }
+        let { data: inserted, error: insErr } = await supabase.from('vouchers').insert(newRow).select().single()
+        if (insErr && /thumb_path/.test(insErr.message || '')) {
+          // Database update 13 not run yet: save without the small picture.
+          delete newRow.thumb_path
+          ;({ data: inserted, error: insErr } = await supabase.from('vouchers').insert(newRow).select().single())
+        }
         if (insErr) throw insErr
         aiItems.push({ voucher: inserted, blob: file })
         if (inserted.voucher_number) seen.set(inserted.voucher_number, [...(seen.get(inserted.voucher_number) || []), { id: inserted.id, company_id: inserted.company_id }])
@@ -259,6 +268,37 @@ export default function BatchDetail() {
     await load()
   }
 
+  // If picture links have expired (page open for hours), fetch fresh ones once.
+  const refreshing = useRef(false)
+  async function refreshPictures() {
+    if (refreshing.current) return
+    refreshing.current = true
+    setThumbs(await signedUrls(vouchers.map((v) => v.thumb_path || v.image_path)))
+    setTimeout(() => { refreshing.current = false }, 60000)
+  }
+
+  // Older vouchers were stored only full-size; this makes small copies so the page loads quickly.
+  async function makeSmallPictures() {
+    setRecheckOpen(false)
+    const todo = vouchers.filter((x) => !x.thumb_path && x.image_path)
+    let made = 0
+    for (let i = 0; i < todo.length; i++) {
+      setProgress({ done: i, total: todo.length, current: '', label: 'Making small pictures' })
+      try {
+        const { data: blob } = await supabase.storage.from('vouchers').download(todo[i].image_path)
+        if (!blob) continue
+        const path = await storeThumbnail(batch.id, blob)
+        if (!path) continue
+        const { error } = await supabase.from('vouchers').update({ thumb_path: path }).eq('id', todo[i].id)
+        if (error) { setError(error); break }
+        made++
+      } catch { /* skip this one */ }
+    }
+    setProgress(null)
+    setError(`Small pictures made for ${made} of ${todo.length} voucher(s).`)
+    await load()
+  }
+
   async function setCompanyForSelected() {
     const ids = vouchers.filter((x) => selectedIds.has(x.id) && ['pending', 'valid', 'post_dated', 'not_valid'].includes(x.status)).map((x) => x.id)
     if (!ids.length || !bulkCompany) return
@@ -311,6 +351,12 @@ export default function BatchDetail() {
                     <strong>All pending vouchers</strong>
                     <span className="muted small">Re-reads every image; barcode data replaces current values</span>
                   </button>
+                  {vouchers.some((x) => !x.thumb_path) && (
+                    <button onClick={makeSmallPictures}>
+                      <strong>Make pictures load faster</strong>
+                      <span className="muted small">Creates small copies of this batch's pictures (one-off)</span>
+                    </button>
+                  )}
                   {aiOn && (
                     <button onClick={aiReadPending}>
                       <strong>Read with AI</strong>
@@ -423,7 +469,7 @@ export default function BatchDetail() {
                 batch={batch}
                 companies={companies}
                 companyById={companyById}
-                thumb={thumbs[v.image_path]}
+                thumb={thumbs[v.thumb_path || v.image_path]}
                 expanded={zoomedId === v.id}
                 onToggleImage={(id) => setZoomedId((z) => (z === id ? null : id))}
                 onUpdated={onRowUpdated}
@@ -432,6 +478,7 @@ export default function BatchDetail() {
                 selected={selectedIds.has(v.id)}
                 onShowDuplicate={setDupFor}
                 onRemove={(id) => setRemoveIds([id])}
+                onImageError={refreshPictures}
                 onSelect={(id) => setSelectedIds((cur) => { const n = new Set(cur); if (n.has(id)) n.delete(id); else n.add(id); return n })}
               />
             ))}

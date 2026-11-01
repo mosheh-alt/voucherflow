@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import { supabase } from '../lib/supabase.js'
+import { supabase, signedUrls } from '../lib/supabase.js'
 import { decideStatus, isPlaceholderBarcode, missingFields } from '../lib/rules.js'
 import { date, today } from '../lib/format.js'
 import { parseHebrewDate } from '../lib/hebrewDate.js'
@@ -36,7 +36,7 @@ function clean(d) {
 // One voucher row on the batch page, with the data entered directly in the row.
 // Leaving a box saves it; Enter (or ✓) validates the voucher and jumps to the next one.
 const VoucherRow = forwardRef(function VoucherRow(
-  { v, batch, companies, companyById, thumb, expanded, onToggleImage, onUpdated, onNext, canEdit, selected, onSelect, onShowDuplicate, onRemove },
+  { v, batch, companies, companyById, thumb, expanded, onToggleImage, onUpdated, onNext, canEdit, selected, onSelect, onShowDuplicate, onRemove, onImageError },
   ref
 ) {
   const { session } = useAuth()
@@ -48,6 +48,7 @@ const VoucherRow = forwardRef(function VoucherRow(
   const amountRef = useRef(null)
   const accountRef = useRef(null)
   const [suggested, setSuggested] = useState(null) // { account, from, distance }
+  const [fullUrl, setFullUrl] = useState(null) // full-size picture, loaded only when zoomed in
   const [hebrewOpen, setHebrewOpen] = useState(false)
   const [hebrewText, setHebrewText] = useState('')
   const [hebrewProblem, setHebrewProblem] = useState(false)
@@ -56,6 +57,10 @@ const VoucherRow = forwardRef(function VoucherRow(
   const pictureSize = v.status === 'pending'
     ? (expanded ? 'thumb-big thumb-huge' : 'thumb-big')
     : (expanded ? 'thumb-big' : '')
+
+  useEffect(() => {
+    if (expanded && v.thumb_path && !fullUrl) signedUrls([v.image_path]).then((m) => setFullUrl(m[v.image_path] || null))
+  }, [expanded, v.thumb_path, v.image_path, fullUrl])
 
   // Keep the boxes in step when the voucher changes (saved, or barcode re-read),
   // without wiping anything still being typed in another box.
@@ -212,7 +217,7 @@ const VoucherRow = forwardRef(function VoucherRow(
       <td><input type="checkbox" checked={Boolean(selected)} onChange={() => onSelect(v.id)} aria-label="Select voucher" /></td>
       <td>
         {thumb
-          ? <img className={`thumb zoomable ${pictureSize}`} src={thumb} alt="Voucher" loading="lazy" title={expanded ? "Click to make smaller" : "Click to enlarge"} onClick={() => onToggleImage(v.id)} />
+          ? <img className={`thumb zoomable ${pictureSize}`} src={expanded && fullUrl ? fullUrl : thumb} onError={() => onImageError?.()} alt="Voucher" loading="lazy" title={expanded ? "Click to make smaller" : "Click to enlarge"} onClick={() => onToggleImage(v.id)} />
           : <div className="thumb" />}
       </td>
       <td>

@@ -19,7 +19,7 @@ const VIEWS = {
 }
 
 const PAGE = 100
-const COLUMNS = 'id, batch_id, collector_reference, image_path, voucher_number, donor_account, company_id, amount, expiry_date, date_text, status, status_reason, urgent, send_by, hold_until, sent_at, sent_method, sent_reference, received_at, paid_at, batches(batch_no, received_date)'
+const COLUMNS = '*, batches(batch_no, received_date)'
 
 function chunks(list, size) {
   const out = []
@@ -82,7 +82,7 @@ export default function Pool() {
   const pages = Math.max(1, Math.ceil(shown.length / PAGE))
 
   useEffect(() => {
-    signedUrls(pageRows.map((r) => r.image_path)).then(setThumbs)
+    signedUrls(pageRows.map((r) => r.thumb_path || r.image_path)).then(setThumbs)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, shown])
 
@@ -224,8 +224,8 @@ export default function Pool() {
               <tr key={r.id} className={selected.has(r.id) ? 'row-selected' : ''}>
                 <td><input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)} /></td>
                 <td>
-                  {thumbs[r.image_path]
-                    ? <img className={`thumb zoomable ${bigId === r.id ? 'thumb-big' : ''}`} src={thumbs[r.image_path]} alt="Voucher" loading="lazy"
+                  {thumbs[r.thumb_path || r.image_path]
+                    ? <img className={`thumb zoomable ${bigId === r.id ? 'thumb-big' : ''}`} src={thumbs[r.thumb_path || r.image_path]} alt="Voucher" loading="lazy"
                         onClick={() => setBigId(bigId === r.id ? null : r.id)} title="Click to enlarge" />
                     : <div className="thumb" />}
                 </td>
