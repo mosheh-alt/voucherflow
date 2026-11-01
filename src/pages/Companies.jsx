@@ -8,6 +8,7 @@ import { ErrorBox, Modal } from '../components.jsx'
 const EMPTY = {
   name: '', submission_method: 'physical', report_email: '', portal_url: '', address: '',
   barcode_pattern: '', amount_divisor: 100, expiry_format: 'YYMMDD', accepted: true, active: true, notes: '',
+  date_type: 'expiry', validity_months: '', urgent_days: 3,
 }
 
 export default function Companies() {
@@ -81,6 +82,9 @@ function CompanyForm({ initial, onClose, onSaved }) {
       expiry_format: f.expiry_format,
       accepted: f.accepted,
       active: f.active,
+      date_type: f.date_type || 'expiry',
+      validity_months: f.date_type === 'issue' && f.validity_months !== '' ? Number(f.validity_months) : null,
+      urgent_days: f.urgent_days === '' ? 3 : Number(f.urgent_days),
       notes: f.notes?.trim() || null,
     }
     const { error } = isNew
@@ -142,6 +146,22 @@ function CompanyForm({ initial, onClose, onSaved }) {
         )}
 
         <h3>Validity</h3>
+        <div className="grid2">
+          <label>The date on the voucher is
+            <select value={f.date_type || 'expiry'} onChange={(e) => set('date_type', e.target.value)}>
+              <option value="expiry">the expiry date (valid until)</option>
+              <option value="issue">the issue date (valid for a period from it)</option>
+            </select>
+          </label>
+          {f.date_type === 'issue' ? (
+            <label>Valid for (months) from that date
+              <input type="number" min="1" value={f.validity_months ?? ''} onChange={(e) => set('validity_months', e.target.value)} placeholder="e.g. 6" />
+            </label>
+          ) : <div />}
+          <label>Warn "urgent" when this many days or fewer are left
+            <input type="number" min="0" value={f.urgent_days ?? 3} onChange={(e) => set('urgent_days', e.target.value)} />
+          </label>
+        </div>
         <label className="check"><input type="checkbox" checked={f.accepted} onChange={(e) => set('accepted', e.target.checked)} /> Vouchers from this company are accepted</label>
         <label className="check"><input type="checkbox" checked={f.active} onChange={(e) => set('active', e.target.checked)} /> Active (shown in lists)</label>
         <label>Notes<input value={f.notes || ''} onChange={(e) => set('notes', e.target.value)} /></label>

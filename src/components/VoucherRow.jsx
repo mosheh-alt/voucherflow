@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase.js'
 import { decideStatus, missingFields } from '../lib/rules.js'
+import { date, today } from '../lib/format.js'
 import { useAuth } from '../auth.jsx'
 import { StatusPill } from '../components.jsx'
 
@@ -84,6 +85,16 @@ const VoucherRow = forwardRef(function VoucherRow(
     setD((x) => (x.donor_account ? x : { ...x, donor_account: s.donor_account }))
   }
 
+  // Live check of the date on the voucher, so problems show before validating.
+  const dateCheck = (() => {
+    if (!d.expiry_date || !EDITABLE.includes(v.status)) return null
+    const r = decideStatus({ company: companyById[d.company_id], expiry_date: d.expiry_date, receivedDate: batch.received_date, today: today() })
+    if (r.status === 'not_valid') return { kind: 'bad-text', text: r.reason }
+    if (r.urgent) return { kind: 'warn-text', text: `Urgent: expires ${date(r.sendBy)}` }
+    if (r.sendBy && r.sendBy !== d.expiry_date) return { kind: 'muted', text: `Valid until ${date(r.sendBy)}` }
+    return null
+  })()
+
   function set(field, value) {
     if (field === 'voucher_number' || field === 'company_id') setSuggested(null)
     setD((x) => ({ ...x, [field]: value }))
@@ -128,15 +139,18 @@ const VoucherRow = forwardRef(function VoucherRow(
         .eq('voucher_number', values.voucher_number)
         .neq('id', v.id)
         .is('deleted_at', null)
-      const { status, reason } = decideStatus({
+      const { status, reason, sendBy, urgent } = decideStatus({
         company: companyById[values.company_id],
         expiry_date: values.expiry_date,
         receivedDate: batch.received_date,
+        today: today(),
       })
       await update({
         ...values,
         status,
         status_reason: reason,
+        send_by: sendBy,
+        urgent,
         possible_duplicate: (count ?? 0) > 0,
         validated_by: session.user.id,
         validated_at: new Date().toISOString(),
@@ -192,7 +206,8 @@ const VoucherRow = forwardRef(function VoucherRow(
       <td>
         {editable
           ? <input className="cell" type="date" value={d.expiry_date} onChange={(e) => set('expiry_date', e.target.value)} onBlur={saveField} onKeyDown={onKey} />
-          : (v.expiry_date || '—')}
+          : date(v.expiry_date)}
+        {dateCheck && <div className={`small ${dateCheck.kind}`}>{dateCheck.text}</div>}
       </td>
       <td className="status-cell">
         <StatusPill status={v.status} />
@@ -201,6 +216,7 @@ const VoucherRow = forwardRef(function VoucherRow(
           {!v.barcode_read && <span className="flag warn">No barcode</span>}
           {v.possible_duplicate && <span className="flag bad">Duplicate?</span>}
           {v.prefilled && v.status === 'pending' && <span className="flag info">Prefilled</span>}
+          {v.urgent && v.status === 'valid' && <span className="flag bad">Urgent – send by {date(v.send_by)}</span>}
         </div>
         {problem && <div className="bad-text small">{problem}</div>}
       </td>

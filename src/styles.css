@@ -234,3 +234,4 @@ input.cell[type="date"] { width: 150px; }
 .status-cell .flags { margin-top: 4px; }
 input.cell.acc { width: 110px; }
 input.cell.suggested { background: var(--info-bg); border-color: #9cc3e2; }
+.warn-text { color: var(--warn); font-weight: 600; }

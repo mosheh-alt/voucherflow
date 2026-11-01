@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase, signedUrls } from '../lib/supabase.js'
 import { NOT_VALID_REASONS, decideStatus, interpretBarcode, missingFields } from '../lib/rules.js'
-import { dateTime, money } from '../lib/format.js'
+import { date, dateTime, money, today } from '../lib/format.js'
 import { useAuth } from '../auth.jsx'
 import { reextract } from '../lib/reextract.js'
 import { ErrorBox, StatusPill } from '../components.jsx'
@@ -221,15 +221,16 @@ export default function VoucherEditor({ batch, vouchers, companies, currentId, o
       return
     }
     const duplicate = await checkDuplicate(values.voucher_number)
-    const { status, reason } = decideStatus({
+    const { status, reason, sendBy, urgent } = decideStatus({
       company: companyById[values.company_id],
       expiry_date: values.expiry_date,
       receivedDate: batch.received_date,
+      today: today(),
     })
     setWarning(status === 'not_valid'
       ? `Previous voucher ${values.voucher_number} saved as NOT VALID: ${reason}`
-      : null)
-    await save({ ...values, status, status_reason: reason, possible_duplicate: duplicate })
+      : urgent ? `Previous voucher ${values.voucher_number}: ${reason}` : null)
+    await save({ ...values, status, status_reason: reason, send_by: sendBy, urgent, possible_duplicate: duplicate })
   }
 
   async function submitNotValid() {
@@ -293,15 +294,19 @@ export default function VoucherEditor({ batch, vouchers, companies, currentId, o
               {Number(suggestion.distance) === 0 ? ' (same voucher seen before)' : ` (${suggestion.distance} away)`} — please check it against the voucher.
             </div>
           )}
-          <label>Expiry date <span className="muted">(if shown)</span>
+          <label>Date on voucher <span className="muted">(if shown)</span>
             <input type="date" value={form.expiry_date} onChange={(e) => update('expiry_date', e.target.value)} />
           </label>
           {selectedCompany && selectedCompany.accepted === false && (
             <div className="alert warn">{selectedCompany.name} is marked as no longer accepted.</div>
           )}
-          {form.expiry_date && form.expiry_date < batch.received_date && (
-            <div className="alert warn">Expired before the drop-off date — will be saved as not valid.</div>
-          )}
+          {form.expiry_date && (() => {
+            const r = decideStatus({ company: selectedCompany, expiry_date: form.expiry_date, receivedDate: batch.received_date, today: today() })
+            if (r.status === 'not_valid') return <div className="alert warn">{r.reason} — will be saved as not valid.</div>
+            if (r.urgent) return <div className="alert warn">Urgent: expires {date(r.sendBy)} — send within 1–2 days.</div>
+            if (r.sendBy && r.sendBy !== form.expiry_date) return <div className="alert info small">Valid until {date(r.sendBy)}.</div>
+            return null
+          })()}
 
           <ErrorBox error={error} />
           {warning && <div className="alert warn">{warning}</div>}

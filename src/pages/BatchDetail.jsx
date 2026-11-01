@@ -305,7 +305,7 @@ export default function BatchDetail() {
           <thead>
             <tr>
               <th>Picture</th><th>Voucher no.</th><th>Account no.</th><th>Company</th><th className="num">Amount</th>
-              <th>Expiry</th><th>Status</th><th></th>
+              <th>Date on voucher</th><th>Status</th><th></th>
             </tr>
           </thead>
           <tbody>

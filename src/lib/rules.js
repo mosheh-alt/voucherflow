@@ -129,16 +129,53 @@ export function interpretBarcode(barcode, companies) {
   return result
 }
 
-// Decide the status after a person validates a voucher.
-// receivedDate: the batch drop-off date (yyyy-mm-dd).
-export function decideStatus({ company, expiry_date, receivedDate }) {
+// Adds whole months to a yyyy-mm-dd date (31 Aug + 6 months → 28/29 Feb).
+export function addMonths(isoDate, months) {
+  const [y, m, d] = isoDate.split('-').map(Number)
+  const target = new Date(Date.UTC(y, m - 1 + Number(months), 1))
+  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate()
+  target.setUTCDate(Math.min(d, lastDay))
+  return target.toISOString().slice(0, 10)
+}
+
+export function daysBetween(fromIso, toIso) {
+  return Math.round((Date.parse(toIso + 'T00:00:00Z') - Date.parse(fromIso + 'T00:00:00Z')) / 86400000)
+}
+
+// The last day a voucher can be used. For companies whose voucher date is the issue date
+// (e.g. AAC: "valid for 6 months from the date"), that's the date plus the validity period.
+export function lastValidDate(company, voucherDate) {
+  if (!voucherDate) return null
+  if (company && company.date_type === 'issue' && Number(company.validity_months) > 0) {
+    return addMonths(voucherDate, company.validity_months)
+  }
+  return voucherDate
+}
+
+// Decide the status when a voucher is validated.
+//   expiry_date: the date written on the voucher;  receivedDate: batch drop-off date;  today: yyyy-mm-dd
+// Returns { status, reason, sendBy, urgent, daysLeft }
+export function decideStatus({ company, expiry_date, receivedDate, today }) {
   if (company && company.accepted === false) {
-    return { status: 'not_valid', reason: 'Company no longer accepted' }
+    return { status: 'not_valid', reason: 'Company no longer accepted', sendBy: null, urgent: false }
   }
-  if (expiry_date && receivedDate && expiry_date < receivedDate) {
-    return { status: 'not_valid', reason: 'Expired at drop-off' }
+  const sendBy = lastValidDate(company, expiry_date)
+  if (sendBy && receivedDate && sendBy < receivedDate) {
+    return { status: 'not_valid', reason: 'Expired at drop-off', sendBy, urgent: false }
   }
-  return { status: 'valid', reason: null }
+  if (sendBy && today && sendBy < today) {
+    return { status: 'not_valid', reason: `Expired on ${sendBy.split('-').reverse().join('/')}`, sendBy, urgent: false }
+  }
+  const warnDays = Number(company?.urgent_days ?? 3)
+  const daysLeft = sendBy && today ? daysBetween(today, sendBy) : null
+  const urgent = daysLeft !== null && daysLeft <= warnDays
+  return {
+    status: 'valid',
+    reason: urgent ? `Urgent: expires ${sendBy.split('-').reverse().join('/')} — send within 1–2 days` : null,
+    sendBy,
+    urgent,
+    daysLeft,
+  }
 }
 
 // Which fields are still missing before a voucher can be saved as valid.
