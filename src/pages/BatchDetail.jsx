@@ -296,7 +296,7 @@ export default function BatchDetail() {
 
       {vouchers.length > 0 && (
         <p className="muted small">
-          Type straight into the rows. Each voucher is shown large next to its boxes. Click a picture to zoom in further. Press <strong>Enter</strong> (or ✓) to validate a voucher and jump to the next one.
+          Type straight into the rows. Vouchers still to do are shown large next to their boxes; once validated they shrink back. Click any picture to enlarge it. Press <strong>Enter</strong> (or ✓) to validate a voucher and jump to the next one.
         </p>
       )}
       <div className="table-wrap">

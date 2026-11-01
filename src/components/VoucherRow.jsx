@@ -38,6 +38,10 @@ const VoucherRow = forwardRef(function VoucherRow(
   const companyRef = useRef(null)
   const amountRef = useRef(null)
   const editable = canEdit && EDITABLE.includes(v.status)
+  // Vouchers still to do are shown large; once validated they shrink back (click to review).
+  const pictureSize = v.status === 'pending'
+    ? (expanded ? 'thumb-big thumb-huge' : 'thumb-big')
+    : (expanded ? 'thumb-big' : '')
 
   // Keep the boxes in step when the voucher changes (saved, or barcode re-read),
   // without wiping anything still being typed in another box.
@@ -134,7 +138,7 @@ const VoucherRow = forwardRef(function VoucherRow(
     <tr className={problem ? 'row-problem' : v.status === 'pending' ? 'row-pending' : ''}>
       <td>
         {thumb
-          ? <img className={`thumb thumb-big zoomable ${expanded ? "thumb-huge" : ""}`} src={thumb} alt="Voucher" loading="lazy" title={expanded ? "Click to make smaller" : "Click to zoom in"} onClick={() => onToggleImage(v.id)} />
+          ? <img className={`thumb zoomable ${pictureSize}`} src={thumb} alt="Voucher" loading="lazy" title={expanded ? "Click to make smaller" : "Click to enlarge"} onClick={() => onToggleImage(v.id)} />
           : <div className="thumb" />}
       </td>
       <td>
