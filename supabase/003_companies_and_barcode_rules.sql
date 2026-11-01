@@ -1,6 +1,7 @@
 -- =====================================================================
 -- VoucherFlow — update 3: voucher companies and their barcode rules
 -- Worked out from the London voucher sheet (69,303 barcodes analysed).
+-- 25 companies (The Simcha Trust, Keren Shmuel and Ichud Talmidey Yesodeh Hatorah removed).
 -- Paste into Supabase → SQL Editor → new snippet → Run. Safe to run again.
 -- Existing companies with the same name get their barcode rule updated;
 -- missing ones are added. Companies without a rule have plain-number vouchers.
@@ -20,9 +21,6 @@ from (values
   ('AHT', 'AH[SNP]\d{9}0*(?<voucher>[1-9]\d*)(?<pence>\d{5})'),
   ('Kehal Yisroel', 'GK[SNP]\d{9}0*(?<voucher>[1-9]\d*)(?<pence>\d{5})'),
   ('Yad Shlomo', 'YS[SNP]\d{9}0*(?<voucher>[1-9]\d*)(?<pence>\d{5})'),
-  ('The Simcha Trust', 'SM[SNP]\d{9}0*(?<voucher>[1-9]\d*)(?<pence>\d{5})'),
-  ('Keren Shmuel', 'KS[SNP]\d{9}0*(?<voucher>[1-9]\d*)(?<pence>\d{5})'),
-  ('Ichud Talmidey Yesodeh Hatorah', 'YH[SNP]\d{9}0*(?<voucher>[1-9]\d*)(?<pence>\d{5})'),
   ('Zoreya Tzedokos', 'ZT[SNP]\d{9}0*(?<voucher>[1-9]\d*)(?<pence>\d{5})'),
   ('Beis Aharon Trust', 'BZ[SNP]\d{9}0*(?<voucher>[1-9]\d*)(?<pence>\d{5})
 BAT(?<tenths>\d{4})0{5}(?<voucher>\d{6})(?<account>\d{3})\d{4}'),
@@ -47,4 +45,14 @@ BAT(?<tenths>\d{4})0{5}(?<voucher>\d{6})(?<account>\d{3})\d{4}'),
 ) as v(name, pattern)
 on conflict (name) do update
   set barcode_pattern = coalesce(excluded.barcode_pattern, public.companies.barcode_pattern);
+
+-- Companies that no longer exist: The Simcha Trust, Keren Shmuel, Ichud Talmidey Yesodeh Hatorah.
+-- Removed completely if nothing uses them; otherwise switched off (kept for history).
+delete from public.companies c
+ where c.name in ('The Simcha Trust', 'Keren Shmuel', 'Ichud Talmidey Yesodeh Hatorah')
+   and not exists (select 1 from public.vouchers v where v.company_id = c.id)
+   and not exists (select 1 from public.account_history h where h.company_id = c.id);
+update public.companies
+   set active = false, accepted = false, barcode_pattern = null
+ where name in ('The Simcha Trust', 'Keren Shmuel', 'Ichud Talmidey Yesodeh Hatorah');
 
