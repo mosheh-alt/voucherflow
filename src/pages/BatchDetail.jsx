@@ -50,7 +50,9 @@ export default function BatchDetail() {
 
   useEffect(() => {
     load()
-    supabase.from('companies').select('*').eq('active', true).order('name').then(({ data }) => {
+    supabase.from('companies').select('*').order('name').then(({ data, error }) => {
+      if (error) setError(error)
+      // Barcode matching uses active companies only; the list keeps inactive ones so their names still show.
       setCompanies(data || [])
       setCompaniesLoaded(true)
     })
@@ -90,7 +92,7 @@ export default function BatchDetail() {
       setProgress({ done: i, total: files.length, current: file.name })
       try {
         const barcode = await readBarcode(file)
-        const { company, fields, prefilled } = interpretBarcode(barcode, companies)
+        const { company, fields, prefilled } = interpretBarcode(barcode, companies.filter((c) => c.active !== false))
 
         let duplicate = false
         if (fields.voucher_number) {
@@ -153,7 +155,7 @@ export default function BatchDetail() {
       const v = todo[i]
       setProgress({ done: i, total: todo.length, current: v.file_name || '', label: 'Re-reading' })
       try {
-        const patch = reextractPatch(await reextract(v, companies))
+        const patch = reextractPatch(await reextract(v, companies.filter((c) => c.active !== false)))
         if (!patch) { noBarcode++; continue }
         const { error } = await supabase.from('vouchers').update(patch).eq('id', v.id)
         if (!error) updated++

@@ -194,7 +194,9 @@ const VoucherRow = forwardRef(function VoucherRow(
         {editable ? (
           <select ref={companyRef} className="cell" value={d.company_id} onChange={(e) => set('company_id', e.target.value)} onBlur={saveField} onKeyDown={onKey}>
             <option value="">— company —</option>
-            {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {companies.filter((c) => c.active !== false || c.id === d.company_id).map((c) => (
+              <option key={c.id} value={c.id}>{c.name}{c.active === false ? ' (inactive)' : ''}</option>
+            ))}
           </select>
         ) : (companyById[v.company_id]?.name || '—')}
       </td>
@@ -214,6 +216,7 @@ const VoucherRow = forwardRef(function VoucherRow(
         {v.status_reason && <div className="muted small">{v.status_reason}</div>}
         <div className="flags">
           {!v.barcode_read && <span className="flag warn">No barcode</span>}
+          {v.company_id && !companyById[v.company_id] && <span className="flag bad">Company not found ({String(v.company_id).slice(0, 8)})</span>}
           {v.barcode_read && !v.company_id && v.status === 'pending' && (
             <span className="flag warn" title={`Barcode read: ${v.barcode_raw}`}>Barcode not recognised: {v.barcode_raw}</span>
           )}
