@@ -5,6 +5,7 @@ import { readBarcode } from '../lib/barcode.js'
 import { interpretBarcode } from '../lib/rules.js'
 import { collectorLabel, date, money } from '../lib/format.js'
 import { takePendingFiles } from '../lib/pending.js'
+import { reextract, reextractPatch } from '../lib/reextract.js'
 import { useAuth } from '../auth.jsx'
 import { ErrorBox, Stat, StatusPill } from '../components.jsx'
 
@@ -22,6 +23,7 @@ export default function BatchDetail() {
   const [error, setError] = useState(null)
   const [progress, setProgress] = useState(null) // { done, total, current }
   const [dragging, setDragging] = useState(false)
+  const [recheckOpen, setRecheckOpen] = useState(false)
   const fileInput = useRef(null)
 
   const load = useCallback(async () => {
@@ -132,38 +134,32 @@ export default function BatchDetail() {
     await load()
   }
 
-  // Re-reads barcodes (and re-applies company rules) for pending vouchers missing a barcode or company.
-  async function recheck() {
-    const todo = vouchers.filter((v) => v.status === 'pending' && (!v.barcode_read || !v.company_id))
-    if (!todo.length) return
+  // Re-extracts barcode data for pending vouchers: 'missing' = only those without barcode or company,
+  // 'all' = every pending voucher (barcode data replaces what's there; validated vouchers are not touched).
+  async function recheck(mode) {
+    setRecheckOpen(false)
+    const todo = vouchers.filter((v) => v.status === 'pending' && (mode === 'all' || !v.barcode_read || !v.company_id))
+    if (!todo.length) {
+      setError('No pending vouchers to re-read.')
+      return
+    }
     setError(null)
-    let fixed = 0
+    let updated = 0
+    let noBarcode = 0
     for (let i = 0; i < todo.length; i++) {
       const v = todo[i]
-      setProgress({ done: i, total: todo.length, current: v.file_name || '' , label: 'Re-checking' })
+      setProgress({ done: i, total: todo.length, current: v.file_name || '', label: 'Re-reading' })
       try {
-        let barcode = v.barcode_raw
-        if (!barcode && v.image_path) {
-          const { data: blob } = await supabase.storage.from('vouchers').download(v.image_path)
-          if (blob) barcode = await readBarcode(blob)
-        }
-        if (!barcode) continue
-        const { company, fields, prefilled } = interpretBarcode(barcode, companies)
-        const patch = { barcode_raw: barcode, barcode_read: true }
-        if (company && !v.company_id) patch.company_id = company.id
-        if (fields.voucher_number && (!v.voucher_number || !v.company_id)) patch.voucher_number = fields.voucher_number
-        if (fields.amount != null && v.amount == null) patch.amount = fields.amount
-        if (fields.donor_account && !v.donor_account) patch.donor_account = fields.donor_account
-        if (fields.expiry_date && !v.expiry_date) patch.expiry_date = fields.expiry_date
-        if (prefilled) patch.prefilled = true
+        const patch = reextractPatch(await reextract(v, companies))
+        if (!patch) { noBarcode++; continue }
         const { error } = await supabase.from('vouchers').update(patch).eq('id', v.id)
-        if (!error) fixed++
+        if (!error) updated++
       } catch {
         /* leave this voucher for manual entry */
       }
     }
     setProgress(null)
-    setError(`Re-check finished: ${fixed} of ${todo.length} voucher(s) updated.`)
+    setError(`Re-read finished: ${updated} of ${todo.length} voucher(s) updated` + (noBarcode ? `, ${noBarcode} still without a readable barcode.` : '.'))
     await load()
   }
 
@@ -196,8 +192,22 @@ export default function BatchDetail() {
           </div>
         </div>
         <div className="head-actions">
-          {can('admin', 'batch_entry') && vouchers.some((v) => v.status === 'pending' && (!v.barcode_read || !v.company_id)) && (
-            <button className="btn" disabled={Boolean(progress)} onClick={recheck}>Re-check barcodes</button>
+          {can('admin', 'batch_entry') && summary.pending > 0 && (
+            <div className="menu-wrap">
+              <button className="btn" disabled={Boolean(progress)} onClick={() => setRecheckOpen(!recheckOpen)}>Re-read barcodes ▾</button>
+              {recheckOpen && (
+                <div className="menu">
+                  <button onClick={() => recheck('missing')}>
+                    <strong>Only vouchers missing data</strong>
+                    <span className="muted small">No barcode or no company yet</span>
+                  </button>
+                  <button onClick={() => recheck('all')}>
+                    <strong>All pending vouchers</strong>
+                    <span className="muted small">Re-reads every image; barcode data replaces current values</span>
+                  </button>
+                </div>
+              )}
+            </div>
           )}
           {summary.pending > 0 && (
             <button className="btn primary" onClick={() => navigate(`/batches/${batch.id}/validate`)}>
@@ -250,6 +260,13 @@ export default function BatchDetail() {
               <div className="muted small" style={{ marginTop: 8 }}>or drag and drop them here · JPG or PNG, one image per voucher · you can select hundreds at once</div>
             </>
           )}
+        </div>
+      )}
+
+      {progress && !canUpload && (
+        <div className="card progress-card">
+          <strong>{progress.label || 'Processing'} {progress.done + 1} of {progress.total}</strong>
+          <div className="bar"><div style={{ width: `${(progress.done / progress.total) * 100}%` }} /></div>
         </div>
       )}
 

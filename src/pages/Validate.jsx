@@ -4,6 +4,7 @@ import { supabase, fetchAll, signedUrls } from '../lib/supabase.js'
 import { NOT_VALID_REASONS, decideStatus, interpretBarcode, missingFields } from '../lib/rules.js'
 import { collectorLabel, date, dateTime, money } from '../lib/format.js'
 import { useAuth } from '../auth.jsx'
+import { reextract } from '../lib/reextract.js'
 import { ErrorBox, StatusPill } from '../components.jsx'
 
 const EDITABLE = ['pending', 'valid', 'not_valid']
@@ -36,6 +37,8 @@ export default function Validate() {
   const [reason, setReason] = useState(NOT_VALID_REASONS[0])
   const [history, setHistory] = useState([])
   const [suggestion, setSuggestion] = useState(null) // { account, from, distance }
+  const [rereading, setRereading] = useState(false)
+  const [rereadNote, setRereadNote] = useState(null)
   const amountRef = useRef(null)
   const numberRef = useRef(null)
   const companyRef = useRef(null)
@@ -75,6 +78,7 @@ export default function Validate() {
     if (!current) return
     setForm(formFrom(current))
     setSuggestion(null)
+    setRereadNote(null)
     setError(null)
     setRejecting(false)
     setZoom(false)
@@ -151,6 +155,45 @@ export default function Validate() {
         donor_account: f.donor_account || fields.donor_account || '',
         expiry_date: f.expiry_date || fields.expiry_date || '',
       }))
+    }
+  }
+
+  // Reads this voucher's barcode again from the image and fills the form (saved when you press Enter).
+  async function rereadBarcode() {
+    setRereading(true)
+    setRereadNote(null)
+    try {
+      const r = await reextract(current, companies)
+      if (!r.barcode) {
+        setRereadNote({ kind: 'warn', text: 'No barcode could be read from this image — type the details in.' })
+        return
+      }
+      // Remember the barcode straight away.
+      const { data } = await supabase
+        .from('vouchers')
+        .update({ barcode_raw: r.barcode, barcode_read: true, prefilled: r.prefilled })
+        .eq('id', current.id)
+        .select()
+        .single()
+      if (data) setVouchers((list) => list.map((v) => (v.id === data.id ? data : v)))
+      if (!r.company) {
+        setForm((f) => ({ ...f, voucher_number: r.fields.voucher_number || f.voucher_number }))
+        setRereadNote({ kind: 'warn', text: `Barcode read (${r.barcode}) but no company rule matches it — choose the company.` })
+        return
+      }
+      setForm((f) => ({
+        ...f,
+        voucher_number: r.fields.voucher_number || f.voucher_number,
+        company_id: r.company.id,
+        amount: r.fields.amount != null ? r.fields.amount : f.amount,
+        donor_account: r.fields.donor_account || f.donor_account,
+        expiry_date: r.fields.expiry_date || f.expiry_date,
+      }))
+      setRereadNote({ kind: 'ok', text: `Re-read: ${r.company.name}, voucher ${r.fields.voucher_number}` + (r.fields.amount != null ? `, ${money(r.fields.amount)}` : '') + '. Check and press Enter to save.' })
+    } catch (e) {
+      setRereadNote({ kind: 'warn', text: e.message || 'Re-read failed.' })
+    } finally {
+      setRereading(false)
     }
   }
 
@@ -330,6 +373,12 @@ export default function Validate() {
             <button type="button" className="btn" disabled={index >= vouchers.length - 1} onClick={() => go(vouchers[index + 1]?.id)}>Next →</button>
           </div>
 
+          {!locked && (
+            <button type="button" className="btn full" disabled={rereading || busy} onClick={rereadBarcode}>
+              {rereading ? 'Reading barcode…' : 'Re-read barcode from image'}
+            </button>
+          )}
+          {rereadNote && <div className={`alert ${rereadNote.kind}`}>{rereadNote.text}</div>}
           {current.barcode_raw && <div className="muted small">Barcode read: <span className="mono">{current.barcode_raw}</span></div>}
           {current.file_name && <div className="muted small">File: {current.file_name}</div>}
 
