@@ -5,6 +5,7 @@ import { date, today } from '../lib/format.js'
 import { parseHebrewDate } from '../lib/hebrewDate.js'
 import { useAuth } from '../auth.jsx'
 import { StatusPill } from '../components.jsx'
+import { duplicateFields, findDuplicate } from '../lib/duplicates.js'
 
 const EDITABLE = ['pending', 'valid', 'post_dated', 'not_valid']
 
@@ -35,7 +36,7 @@ function clean(d) {
 // One voucher row on the batch page, with the data entered directly in the row.
 // Leaving a box saves it; Enter (or ✓) validates the voucher and jumps to the next one.
 const VoucherRow = forwardRef(function VoucherRow(
-  { v, batch, companies, companyById, thumb, expanded, onToggleImage, onUpdated, onNext, canEdit, selected, onSelect },
+  { v, batch, companies, companyById, thumb, expanded, onToggleImage, onUpdated, onNext, canEdit, selected, onSelect, onShowDuplicate },
   ref
 ) {
   const { session } = useAuth()
@@ -176,12 +177,7 @@ const VoucherRow = forwardRef(function VoucherRow(
     }
     setSaving(true)
     try {
-      const { count } = await supabase
-        .from('vouchers')
-        .select('id', { count: 'exact', head: true })
-        .eq('voucher_number', values.voucher_number)
-        .neq('id', v.id)
-        .is('deleted_at', null)
+      const duplicateOf = await findDuplicate({ id: v.id, voucher_number: values.voucher_number, company_id: values.company_id })
       const { status, reason, sendBy, urgent, holdUntil } = decideStatus({
         company: companyById[values.company_id],
         expiry_date: values.expiry_date,
@@ -195,7 +191,7 @@ const VoucherRow = forwardRef(function VoucherRow(
         send_by: sendBy,
         urgent,
         ...(holdUntil ? { hold_until: holdUntil } : {}),
-        possible_duplicate: (count ?? 0) > 0,
+        ...duplicateFields(duplicateOf),
         validated_by: session.user.id,
         validated_at: new Date().toISOString(),
       })
@@ -281,7 +277,11 @@ const VoucherRow = forwardRef(function VoucherRow(
           {v.barcode_read && !v.company_id && v.status === 'pending' && (
             <span className="flag warn" title={`Barcode read: ${v.barcode_raw}`}>Barcode not recognised: {v.barcode_raw}</span>
           )}
-          {v.possible_duplicate && <span className="flag bad">Duplicate?</span>}
+          {v.possible_duplicate && (
+            <button type="button" className="flag bad flag-btn" onClick={() => onShowDuplicate?.(v)} title="Compare with the matching voucher">
+              Duplicate? — compare
+            </button>
+          )}
           {v.prefilled && v.status === 'pending' && <span className="flag info">Prefilled</span>}
           {aiFilled.length > 0 && <span className="flag ai-flag" title="Filled in by AI — please check against the picture">AI – check</span>}
           {hint?.state === 'agree' && companyUnchanged && <span className="flag ok-flag">Company: number history + AI agree</span>}

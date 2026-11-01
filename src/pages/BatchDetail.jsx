@@ -11,6 +11,8 @@ import { suggestCompany, historyPatch } from '../lib/companyGuess.js'
 import { useAuth } from '../auth.jsx'
 import { ErrorBox, Stat, StatusPill } from '../components.jsx'
 import VoucherRow from '../components/VoucherRow.jsx'
+import DuplicateCompare from '../components/DuplicateCompare.jsx'
+import { duplicateFields, findDuplicate, restoreVoucher } from '../lib/duplicates.js'
 
 const ACCEPTED = ['image/jpeg', 'image/png', 'image/webp']
 
@@ -32,6 +34,9 @@ export default function BatchDetail() {
   const rowRefs = useRef({})
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [bulkCompany, setBulkCompany] = useState('')
+  const [dupFor, setDupFor] = useState(null) // voucher whose duplicate comparison is open
+  const [removed, setRemoved] = useState([])
+  const [showRemoved, setShowRemoved] = useState(false)
   const fileInput = useRef(null)
 
   const load = useCallback(async () => {
@@ -47,6 +52,10 @@ export default function BatchDetail() {
         supabase.from('vouchers').select('*').eq('batch_id', id).is('deleted_at', null).order('created_at')
       )
       setVouchers(rows)
+      const { data: gone } = await supabase.from('vouchers')
+        .select('id, voucher_number, company_id, amount, deleted_at, deleted_reason')
+        .eq('batch_id', id).not('deleted_at', 'is', null).order('deleted_at', { ascending: false })
+      setRemoved(gone || [])
       setThumbs(await signedUrls(rows.map((v) => v.image_path)))
     } catch (e) {
       setError(e)
@@ -112,7 +121,8 @@ export default function BatchDetail() {
     }
     setError(skipped ? `${skipped} file(s) skipped — only JPG and PNG images can be uploaded.` : null)
     setProgress({ done: 0, total: files.length, current: '' })
-    const seen = new Set(vouchers.map((v) => v.voucher_number).filter(Boolean))
+    // Voucher numbers met so far in this upload: number → [{ id, company_id }]
+    const seen = new Map()
     const failures = []
     const aiItems = []
 
@@ -123,18 +133,11 @@ export default function BatchDetail() {
         const barcode = await readBarcode(file)
         const { company, fields, prefilled } = interpretBarcode(barcode, companies.filter((c) => c.active !== false))
 
-        let duplicate = false
+        // Same number and same company as a voucher already in the system (or earlier in this upload)?
+        let duplicateOf = null
         if (fields.voucher_number) {
-          if (seen.has(fields.voucher_number)) duplicate = true
-          else {
-            const { count } = await supabase
-              .from('vouchers')
-              .select('id', { count: 'exact', head: true })
-              .eq('voucher_number', fields.voucher_number)
-              .is('deleted_at', null)
-            duplicate = (count ?? 0) > 0
-          }
-          seen.add(fields.voucher_number)
+          const earlier = (seen.get(fields.voucher_number) || []).find((o) => !company || !o.company_id || o.company_id === company.id)
+          duplicateOf = earlier ? earlier.id : await findDuplicate({ voucher_number: fields.voucher_number, company_id: company?.id })
         }
 
         const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
@@ -159,11 +162,12 @@ export default function BatchDetail() {
           donor_account: fields.donor_account,
           expiry_date: fields.expiry_date,
           prefilled,
-          possible_duplicate: duplicate,
+          ...duplicateFields(duplicateOf),
           ...(hist || {}),
         }).select().single()
         if (insErr) throw insErr
         aiItems.push({ voucher: inserted, blob: file })
+        if (inserted.voucher_number) seen.set(inserted.voucher_number, [...(seen.get(inserted.voucher_number) || []), { id: inserted.id, company_id: inserted.company_id }])
       } catch (e) {
         failures.push(`${file.name}: ${e.message || e}`)
       }
@@ -407,6 +411,7 @@ export default function BatchDetail() {
                 onNext={focusNextPending}
                 canEdit={can('admin', 'batch_entry', 'reconciler')}
                 selected={selectedIds.has(v.id)}
+                onShowDuplicate={setDupFor}
                 onSelect={(id) => setSelectedIds((cur) => { const n = new Set(cur); if (n.has(id)) n.delete(id); else n.add(id); return n })}
               />
             ))}
@@ -417,6 +422,42 @@ export default function BatchDetail() {
         </table>
       </div>
 
+
+      {removed.length > 0 && (
+        <div className="removed-box">
+          <button className="btn-link" onClick={() => setShowRemoved(!showRemoved)}>
+            {showRemoved ? 'Hide' : 'Show'} {removed.length} removed voucher(s)
+          </button>
+          {showRemoved && (
+            <table className="table">
+              <thead><tr><th>Voucher no.</th><th>Company</th><th className="num">Amount</th><th>Reason</th><th>Removed</th><th></th></tr></thead>
+              <tbody>
+                {removed.map((r) => (
+                  <tr key={r.id}>
+                    <td className="mono">{r.voucher_number || '—'}</td>
+                    <td>{companyName[r.company_id] || '—'}</td>
+                    <td className="num">{money(r.amount)}</td>
+                    <td className="small">{r.deleted_reason || '—'}</td>
+                    <td>{date(r.deleted_at)}</td>
+                    <td>{can('admin') && <button className="btn small-btn" onClick={async () => {
+                      try { await restoreVoucher(r.id); setError('Voucher restored.'); await load() } catch (e) { setError(e) }
+                    }}>Restore</button>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {dupFor && (
+        <DuplicateCompare
+          voucher={dupFor}
+          companyById={companyById}
+          onClose={() => setDupFor(null)}
+          onChanged={async (msg) => { setDupFor(null); setError(msg); await load() }}
+        />
+      )}
     </>
   )
 }

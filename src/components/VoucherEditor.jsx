@@ -5,6 +5,7 @@ import { date, dateTime, money, today } from '../lib/format.js'
 import { useAuth } from '../auth.jsx'
 import { reextract } from '../lib/reextract.js'
 import { ErrorBox, StatusPill } from '../components.jsx'
+import { duplicateFields, findDuplicate } from '../lib/duplicates.js'
 
 const EDITABLE = ['pending', 'valid', 'post_dated', 'not_valid']
 
@@ -171,17 +172,6 @@ export default function VoucherEditor({ batch, vouchers, companies, currentId, o
     }
   }
 
-  async function checkDuplicate(number) {
-    if (!number) return false
-    const { count } = await supabase
-      .from('vouchers')
-      .select('id', { count: 'exact', head: true })
-      .eq('voucher_number', number)
-      .neq('id', current.id)
-      .is('deleted_at', null)
-    return (count ?? 0) > 0
-  }
-
   async function save(patch) {
     setBusy(true)
     setError(null)
@@ -220,7 +210,7 @@ export default function VoucherEditor({ batch, vouchers, companies, currentId, o
       setError(`Please fill in: ${missing.join(', ')}.`)
       return
     }
-    const duplicate = await checkDuplicate(values.voucher_number)
+    const duplicateOf = await findDuplicate({ id: current.id, voucher_number: values.voucher_number, company_id: values.company_id })
     const { status, reason, sendBy, urgent, holdUntil } = decideStatus({
       company: companyById[values.company_id],
       expiry_date: values.expiry_date,
@@ -230,7 +220,7 @@ export default function VoucherEditor({ batch, vouchers, companies, currentId, o
     setWarning(status === 'not_valid'
       ? `Previous voucher ${values.voucher_number} saved as NOT VALID: ${reason}`
       : urgent ? `Previous voucher ${values.voucher_number}: ${reason}` : null)
-    await save({ ...values, status, status_reason: reason, send_by: sendBy, urgent, ...(holdUntil ? { hold_until: holdUntil } : {}), possible_duplicate: duplicate })
+    await save({ ...values, status, status_reason: reason, send_by: sendBy, urgent, ...(holdUntil ? { hold_until: holdUntil } : {}), ...duplicateFields(duplicateOf) })
   }
 
   async function submitNotValid() {
