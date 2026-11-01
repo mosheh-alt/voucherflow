@@ -245,3 +245,15 @@ input.cell.suggested { background: var(--info-bg); border-color: #9cc3e2; }
 .heb-input { margin-top: 4px; width: 190px; }
 .heb-input.bad { border-color: var(--bad); }
 .checks { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+
+/* Voucher pool */
+.tabs.wrap { flex-wrap: wrap; }
+.company-totals { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; }
+.company-chip { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 12px; background: #fff; border: 1px solid var(--line); border-radius: 8px; font: inherit; cursor: pointer; text-align: left; }
+.company-chip span { font-size: 12px; color: var(--muted); }
+.company-chip.active { border-color: var(--primary); background: var(--info-bg); }
+.company-chip.total { cursor: default; background: #f1f4f7; }
+.action-bar { position: sticky; top: 0; z-index: 4; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: var(--bg); padding: 8px 0; margin-bottom: 6px; border-bottom: 1px solid var(--line); }
+.row-selected td { background: var(--info-bg) !important; }
+.pool-table .thumb { width: 110px; height: 60px; }
+.pool-table .thumb.thumb-big { width: min(460px, 38vw); height: auto; }

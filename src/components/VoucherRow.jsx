@@ -179,7 +179,7 @@ const VoucherRow = forwardRef(function VoucherRow(
         status_reason: reason,
         send_by: sendBy,
         urgent,
-        hold_until: holdUntil ?? null,
+        ...(holdUntil ? { hold_until: holdUntil } : {}),
         possible_duplicate: (count ?? 0) > 0,
         validated_by: session.user.id,
         validated_at: new Date().toISOString(),

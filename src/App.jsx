@@ -11,6 +11,7 @@ import Companies from './pages/Companies.jsx'
 import Users from './pages/Users.jsx'
 import Reports from './pages/Reports.jsx'
 import AiReading from './pages/AiReading.jsx'
+import Pool from './pages/Pool.jsx'
 
 export default function App() {
   const { session, profile, loading, can, signOut } = useAuth()
@@ -36,6 +37,7 @@ export default function App() {
         <nav>
           <NavLink to="/" end>Dashboard</NavLink>
           <NavLink to="/batches">Batches</NavLink>
+          <NavLink to="/vouchers">Voucher pool</NavLink>
           <NavLink to="/collectors">Collectors</NavLink>
           <NavLink to="/reports">Reports</NavLink>
           <div className="nav-group">Settings</div>
@@ -60,6 +62,7 @@ export default function App() {
           <Route path="/users" element={can('admin') ? <Users /> : <Navigate to="/" />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/ai" element={<AiReading />} />
+          <Route path="/vouchers" element={<Pool />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </main>

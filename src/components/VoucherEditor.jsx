@@ -230,7 +230,7 @@ export default function VoucherEditor({ batch, vouchers, companies, currentId, o
     setWarning(status === 'not_valid'
       ? `Previous voucher ${values.voucher_number} saved as NOT VALID: ${reason}`
       : urgent ? `Previous voucher ${values.voucher_number}: ${reason}` : null)
-    await save({ ...values, status, status_reason: reason, send_by: sendBy, urgent, hold_until: holdUntil ?? null, possible_duplicate: duplicate })
+    await save({ ...values, status, status_reason: reason, send_by: sendBy, urgent, ...(holdUntil ? { hold_until: holdUntil } : {}), possible_duplicate: duplicate })
   }
 
   async function submitNotValid() {
