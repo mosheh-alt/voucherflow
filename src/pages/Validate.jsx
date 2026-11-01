@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { supabase, fetchAll, signedUrls } from '../lib/supabase.js'
 import { NOT_VALID_REASONS, decideStatus, interpretBarcode, missingFields } from '../lib/rules.js'
-import { date, dateTime, money } from '../lib/format.js'
+import { collectorLabel, date, dateTime, money } from '../lib/format.js'
 import { useAuth } from '../auth.jsx'
 import { ErrorBox, StatusPill } from '../components.jsx'
 
@@ -42,7 +42,7 @@ export default function Validate() {
   useEffect(() => {
     async function load() {
       try {
-        const { data: b, error: be } = await supabase.from('batches').select('*, collectors(name)').eq('id', id).single()
+        const { data: b, error: be } = await supabase.from('batches').select('*, collectors(name, email)').eq('id', id).single()
         if (be) throw be
         setBatch(b)
         const rows = await fetchAll(() =>
@@ -215,7 +215,7 @@ export default function Validate() {
       <div className="validate-head">
         <div>
           <div className="crumbs"><Link to="/batches">Batches</Link> / <Link to={`/batches/${id}`}>#{batch.batch_no}</Link> / Validate</div>
-          <strong>{batch.collector_reference}</strong> · {batch.collectors?.name} · dropped off {date(batch.received_date)}
+          <strong>{batch.collector_reference}</strong> · {collectorLabel(batch.collectors)} · dropped off {date(batch.received_date)}
         </div>
         <div className="progress-box">
           <div><strong>{done}</strong> of {vouchers.length} validated · valid total <strong>{money(validTotal)}</strong></div>

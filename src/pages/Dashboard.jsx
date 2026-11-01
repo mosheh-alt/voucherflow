@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
-import { STATUS_LABELS, STATUS_ORDER, date } from '../lib/format.js'
+import { STATUS_LABELS, STATUS_ORDER, collectorLabel, date } from '../lib/format.js'
 import { ErrorBox, Stat } from '../components.jsx'
 
 export default function Dashboard() {
@@ -22,7 +22,7 @@ export default function Dashboard() {
         setCounts(c)
         const { data, error } = await supabase
           .from('batches')
-          .select('id, batch_no, collector_reference, received_date, status, collectors(name), vouchers(count)')
+          .select('id, batch_no, collector_reference, received_date, status, collectors(name, email), vouchers(count)')
           .is('deleted_at', null)
           .eq('status', 'open')
           .order('created_at', { ascending: false })
@@ -58,7 +58,7 @@ export default function Dashboard() {
             {batches.map((b) => (
               <tr key={b.id}>
                 <td><Link to={`/batches/${b.id}`}>#{b.batch_no}</Link></td>
-                <td>{b.collector_reference} · {b.collectors?.name}</td>
+                <td>{b.collector_reference} · {collectorLabel(b.collectors)}</td>
                 <td>{date(b.received_date)}</td>
                 <td className="num">{b.vouchers?.[0]?.count ?? 0}</td>
               </tr>

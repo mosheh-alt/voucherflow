@@ -182,3 +182,11 @@ fieldset { border: 0; padding: 0; margin: 0; }
   .validate-body { grid-template-columns: 1fr; }
   .grid2 { grid-template-columns: 1fr; }
 }
+
+/* Collector search in New batch */
+.suggest { border: 1px solid var(--line); border-radius: 6px; margin: -4px 0 8px; overflow: hidden; }
+.suggest button { display: flex; gap: 10px; width: 100%; text-align: left; padding: 7px 10px; border: 0; border-bottom: 1px solid var(--line); background: #fff; cursor: pointer; font: inherit; }
+.suggest button:last-child { border-bottom: 0; }
+.suggest button:hover { background: var(--info-bg); }
+.upload-pick { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 14px 0 4px; padding: 12px; border: 1px dashed #b9c3cf; border-radius: 6px; }
+.sidebar { overflow-y: auto; }

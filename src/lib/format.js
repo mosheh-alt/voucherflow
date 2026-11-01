@@ -52,3 +52,9 @@ export function today() {
   const off = d.getTimezoneOffset()
   return new Date(d.getTime() - off * 60000).toISOString().slice(0, 10)
 }
+
+// How a collector is shown: name if known, otherwise email.
+export function collectorLabel(c) {
+  if (!c) return ''
+  return c.name || c.email || ''
+}

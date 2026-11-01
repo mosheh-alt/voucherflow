@@ -3,7 +3,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { supabase, fetchAll, signedUrls } from '../lib/supabase.js'
 import { readBarcode } from '../lib/barcode.js'
 import { interpretBarcode } from '../lib/rules.js'
-import { date, money } from '../lib/format.js'
+import { collectorLabel, date, money } from '../lib/format.js'
+import { takePendingFiles } from '../lib/pending.js'
 import { useAuth } from '../auth.jsx'
 import { ErrorBox, Stat, StatusPill } from '../components.jsx'
 
@@ -16,6 +17,7 @@ export default function BatchDetail() {
   const [batch, setBatch] = useState(null)
   const [vouchers, setVouchers] = useState([])
   const [companies, setCompanies] = useState([])
+  const [companiesLoaded, setCompaniesLoaded] = useState(false)
   const [thumbs, setThumbs] = useState({})
   const [error, setError] = useState(null)
   const [progress, setProgress] = useState(null) // { done, total, current }
@@ -43,7 +45,10 @@ export default function BatchDetail() {
 
   useEffect(() => {
     load()
-    supabase.from('companies').select('*').eq('active', true).order('name').then(({ data }) => setCompanies(data || []))
+    supabase.from('companies').select('*').eq('active', true).order('name').then(({ data }) => {
+      setCompanies(data || [])
+      setCompaniesLoaded(true)
+    })
   }, [load])
 
   const companyName = useMemo(() => Object.fromEntries(companies.map((c) => [c.id, c.name])), [companies])
@@ -127,6 +132,14 @@ export default function BatchDetail() {
     await load()
   }
 
+  // Files chosen in the New batch form start uploading as soon as the page is ready.
+  useEffect(() => {
+    if (!batch || !companiesLoaded || progress) return
+    const files = takePendingFiles(batch.id)
+    if (files) processFiles(files)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batch?.id, companiesLoaded])
+
   async function setBatchStatus(status) {
     const { error } = await supabase.from('batches').update({ status }).eq('id', batch.id)
     if (error) setError(error)
@@ -144,7 +157,7 @@ export default function BatchDetail() {
           <div className="crumbs"><Link to="/batches">Batches</Link> / #{batch.batch_no}</div>
           <h1>Batch #{batch.batch_no}</h1>
           <div className="muted">
-            Collector <strong>{batch.collector_reference}</strong> · {batch.collectors?.name} · dropped off {date(batch.received_date)}
+            Collector <strong>{batch.collector_reference}</strong> · {collectorLabel(batch.collectors)} · dropped off {date(batch.received_date)}
           </div>
         </div>
         <div className="head-actions">
@@ -195,8 +208,8 @@ export default function BatchDetail() {
             </>
           ) : (
             <>
-              <strong>Drop voucher images here, or click to choose</strong>
-              <div className="muted small">JPG or PNG, one image per voucher. You can select hundreds at once.</div>
+              <button type="button" className="btn primary">Upload voucher images from PC</button>
+              <div className="muted small" style={{ marginTop: 8 }}>or drag and drop them here · JPG or PNG, one image per voucher · you can select hundreds at once</div>
             </>
           )}
         </div>

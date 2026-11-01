@@ -75,7 +75,7 @@ function CollectorForm({ initial, isAdmin, onClose, onSaved }) {
       notes: f.notes?.trim() || null,
       active: f.active,
     }
-    if (!row.reference || !row.name) return setError('Reference and name are required.')
+    if (!row.reference) return setError('Reference number is required.')
     const { error } = isNew
       ? await supabase.from('collectors').insert(row)
       : await supabase.from('collectors').update(row).eq('id', initial.id)
@@ -90,8 +90,8 @@ function CollectorForm({ initial, isAdmin, onClose, onSaved }) {
           <input value={f.reference} onChange={(e) => set('reference', e.target.value)} disabled={!isNew && !isAdmin} autoFocus={isNew} />
         </label>
         {!isNew && !isAdmin && <div className="muted small">Only an admin can change a reference number.</div>}
-        <label>Name *<input value={f.name} onChange={(e) => set('name', e.target.value)} /></label>
-        <label>Email (for reports)<input type="email" value={f.email || ''} onChange={(e) => set('email', e.target.value)} /></label>
+        <label>Name <span className="muted">(optional)</span><input value={f.name} onChange={(e) => set('name', e.target.value)} /></label>
+        <label>Email (for reports and receipts)<input type="email" value={f.email || ''} onChange={(e) => set('email', e.target.value)} /></label>
         <label>Phone<input value={f.phone || ''} onChange={(e) => set('phone', e.target.value)} /></label>
         <label>Notes<input value={f.notes || ''} onChange={(e) => set('notes', e.target.value)} /></label>
         <label className="check"><input type="checkbox" checked={f.active} onChange={(e) => set('active', e.target.checked)} /> Active</label>

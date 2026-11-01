@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase, fetchAll } from '../lib/supabase.js'
-import { STATUS_LABELS, STATUS_ORDER, date, money, today } from '../lib/format.js'
+import { STATUS_LABELS, STATUS_ORDER, collectorLabel, date, money, today } from '../lib/format.js'
 import { downloadCSV } from '../lib/csv.js'
 import { ErrorBox } from '../components.jsx'
 
@@ -76,7 +76,7 @@ export default function Reports() {
   function exportSummary() {
     downloadCSV(`collector-report_${from}_${to}.csv`, [
       { label: 'Collector reference', value: 'reference' },
-      { label: 'Collector name', value: (r) => collectorById[r.collector_id]?.name || '' },
+      { label: 'Collector name', value: (r) => collectorLabel(collectorById[r.collector_id]) },
       { label: 'Vouchers handed in', value: 'handedIn' },
       { label: 'Counted (excl. not valid)', value: 'counted' },
       { label: 'Counted total £', value: (r) => r.countedTotal.toFixed(2) },
@@ -90,7 +90,7 @@ export default function Reports() {
   function exportDetail() {
     downloadCSV(`collector-vouchers_${from}_${to}.csv`, [
       { label: 'Collector reference', value: 'collector_reference' },
-      { label: 'Collector name', value: (r) => collectorById[r.collector_id]?.name || '' },
+      { label: 'Collector name', value: (r) => collectorLabel(collectorById[r.collector_id]) },
       { label: 'Batch', value: (r) => r.batches?.batch_no },
       { label: 'Drop-off date', value: (r) => r.batches?.received_date },
       { label: 'Voucher number', value: 'voucher_number' },
@@ -108,7 +108,7 @@ export default function Reports() {
         <label>Collector
           <select value={collectorId} onChange={(e) => setCollectorId(e.target.value)}>
             <option value="">All collectors</option>
-            {collectors.map((c) => <option key={c.id} value={c.id}>{c.reference} · {c.name}</option>)}
+            {collectors.map((c) => <option key={c.id} value={c.id}>{c.reference} · {collectorLabel(c)}</option>)}
           </select>
         </label>
         <label>Drop-off from<input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
@@ -136,7 +136,7 @@ export default function Reports() {
               <tbody>
                 {summary.map((r) => (
                   <tr key={r.collector_id}>
-                    <td><strong>{r.reference}</strong> · {collectorById[r.collector_id]?.name}</td>
+                    <td><strong>{r.reference}</strong> · {collectorLabel(collectorById[r.collector_id])}</td>
                     <td className="num">{r.handedIn}</td>
                     <td className="num">{r.counted}</td>
                     <td className="num">{money(r.countedTotal)}</td>
