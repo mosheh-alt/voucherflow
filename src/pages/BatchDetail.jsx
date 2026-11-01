@@ -182,6 +182,7 @@ export default function BatchDetail() {
 
   // After a voucher is validated, move to the next pending one below it (or the first one above).
   function focusNextPending(fromId) {
+    setZoomedId((z) => (z === fromId ? null : z)) // the validated voucher shrinks back
     const i = vouchers.findIndex((x) => x.id === fromId)
     const order = [...vouchers.slice(i + 1), ...vouchers.slice(0, Math.max(i, 0))]
     const next = order.find((x) => x.status === 'pending' && x.id !== fromId)
