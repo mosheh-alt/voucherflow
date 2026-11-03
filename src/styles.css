@@ -294,3 +294,8 @@ input.cell.suggested { background: var(--info-bg); border-color: #9cc3e2; }
 .search-bar { margin-top: 8px; }
 .search-card { margin-bottom: 20px; }
 .search-card h2 { margin-top: 0; }
+
+/* AI wasn't sure about this box */
+.cell.ai.ai-doubt { background: #fff1e0; border-color: #e8a04c; box-shadow: 0 0 0 2px #fbd9ae; }
+.test-results td, .test-results th { white-space: nowrap; }
+.method-pick { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 6px 0 10px; }

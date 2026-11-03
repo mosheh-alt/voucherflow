@@ -7,6 +7,7 @@ import { parseHebrewDate } from '../lib/hebrewDate.js'
 import { useAuth } from '../auth.jsx'
 import { StatusPill } from '../components.jsx'
 import { duplicateFields, findDuplicate } from '../lib/duplicates.js'
+import { PROBLEM_LABELS } from '../lib/aiLearning.js'
 
 const EDITABLE = ['pending', 'valid', 'post_dated', 'not_valid']
 
@@ -104,7 +105,10 @@ const VoucherRow = forwardRef(function VoucherRow(
 
   // Boxes the AI filled in and nobody has changed yet are shown in a different colour.
   const aiFilled = v.status === 'pending' ? (v.ai_data?.filled || []) : []
-  const aiCls = (field) => (aiFilled.includes(field) && String(d[field] ?? '') === String(v[field] ?? '') ? ' ai' : '')
+  const aiDoubts = v.status === 'pending' ? (v.ai_data?.problems || []) : []
+  const DOUBT_COLUMN = { voucher_number: 'voucher_number', account_number: 'donor_account', amount: 'amount', date: 'expiry_date' }
+  const aiCls = (field) => (aiFilled.includes(field) && String(d[field] ?? '') === String(v[field] ?? '')
+    ? (aiDoubts.some((p) => DOUBT_COLUMN[p] === field) ? ' ai ai-doubt' : ' ai') : '')
 
   // What the number history and the AI said about the company (only while pending).
   const hint = v.status === 'pending' ? v.company_hint : null
@@ -299,6 +303,11 @@ const VoucherRow = forwardRef(function VoucherRow(
           )}
           {v.prefilled && v.status === 'pending' && <span className="flag info">Prefilled</span>}
           {aiFilled.length > 0 && <span className="flag ai-flag" title="Filled in by AI — please check against the picture">AI – check</span>}
+          {aiDoubts.length > 0 && (
+            <span className="flag warn" title="The AI wasn't sure, or the value doesn't fit this company's usual pattern">
+              AI unsure: {aiDoubts.map((p) => PROBLEM_LABELS[p] || p).join(', ')}
+            </span>
+          )}
           {hint?.state === 'agree' && companyUnchanged && <span className="flag ok-flag">Company: number history + AI agree</span>}
           {hint?.state === 'history' && companyUnchanged && v.company_id && (
             <span className="flag info" title={hint.history?.from ? `Nearest known voucher: ${hint.history.from}` : 'From the number pattern'}>

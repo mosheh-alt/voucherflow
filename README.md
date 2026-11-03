@@ -47,6 +47,9 @@ Run each update file in `supabase/` once, in number order, the same way as the s
 
 ### 1c. AI reading function
 Supabase → Edge Functions: secret `ANTHROPIC_API_KEY`, and a function `read-voucher` with the code in `supabase/functions/read-voucher/index.ts`.
+When this file changes, open the function → Code → paste the new version → Deploy.
+
+How the AI learns: before reading a voucher it is shown up to 3 checked vouchers of the same company (ones it got wrong first) and the patterns found in that company's checked vouchers; answers that don't fit get a second reading with the strong model, and doubtful boxes are marked orange. **AI reading → Test the AI** scores the methods on vouchers already checked.
 
 ### 2. Website (Cloudflare Pages)
 1. Cloudflare → **Workers & Pages → Create → Pages → Import an existing Git repository**.

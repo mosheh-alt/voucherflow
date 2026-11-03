@@ -4,6 +4,7 @@
 import { supabase } from './supabase.js'
 import { parseHebrewDate } from './hebrewDate.js'
 import { combineWithAi, suggestCompany } from './companyGuess.js'
+import { checkReading, companyKnowledge, exampleImages } from './aiLearning.js'
 
 export async function aiEnabled() {
   const { data } = await supabase.from('app_settings').select('value').eq('key', 'ai_reading').maybeSingle()
@@ -11,7 +12,18 @@ export async function aiEnabled() {
 }
 
 export async function setAiEnabled(on) {
-  const { error } = await supabase.from('app_settings').upsert({ key: 'ai_reading', value: on, updated_at: new Date().toISOString() })
+  await setAiSetting('ai_reading', on)
+}
+
+// How the AI reads: which model reads first, and whether it learns from checked vouchers.
+export async function aiSettings() {
+  const { data } = await supabase.from('app_settings').select('key, value').in('key', ['ai_model', 'ai_learning'])
+  const m = Object.fromEntries((data || []).map((r) => [r.key, r.value]))
+  return { firstModel: m.ai_model === 'strong' ? 'strong' : 'fast', learning: m.ai_learning !== false }
+}
+
+export async function setAiSetting(key, value) {
+  const { error } = await supabase.from('app_settings').upsert({ key, value, updated_at: new Date().toISOString() })
   if (error) throw error
 }
 
@@ -51,7 +63,9 @@ function jpeg(bitmap, area, maxWidth, maxHeight, upscale = 1) {
 // Asks the AI to read one voucher image.
 //   company: the company if already known (from the barcode), so its hints and close-ups are used
 //   strong: use the stronger model
-export async function aiReadImage(blob, companies, { company = null, strong = false } = {}) {
+//   knowledge: what was learned from this company's checked vouchers (examples + facts)
+//   excludeIds: vouchers not to use as examples (the one being read)
+export async function aiReadImage(blob, companies, { company = null, strong = false, knowledge = null, excludeIds = [] } = {}) {
   const active = companies.filter((c) => c.active !== false)
   const bitmap = await bitmapOf(blob)
   let image
@@ -65,8 +79,11 @@ export async function aiReadImage(blob, companies, { company = null, strong = fa
   } finally {
     if (typeof bitmap.close === 'function') bitmap.close()
   }
+  const examples = company && knowledge ? await exampleImages(knowledge, excludeIds) : []
   const { data, error } = await supabase.functions.invoke('read-voucher', {
     body: {
+      examples,
+      facts: company && knowledge ? knowledge.facts : '',
       image,
       media_type: 'image/jpeg',
       crops,
@@ -90,7 +107,7 @@ export async function aiReadImage(blob, companies, { company = null, strong = fa
     date = h ? h.iso : null
   }
   const found = active.find((c) => c.name === data.company)
-  return { ...data, date, company_id: found?.id ?? null, read_at: new Date().toISOString() }
+  return { ...data, date, company_id: found?.id ?? null, examples_used: data.examples_used ?? 0, read_at: new Date().toISOString() }
 }
 
 // Works out which empty boxes the AI result can fill. Returns the database changes.
@@ -122,14 +139,32 @@ function stillMissing(after, company) {
   return false
 }
 
-// Reads one voucher: quick model first, stronger model only if something important is still missing.
-async function readOne(voucher, blob, companies) {
+// Boxes on the voucher that each AI field fills.
+const FIELD_COLUMN = { voucher_number: 'voucher_number', account_number: 'donor_account', amount: 'amount', date: 'expiry_date' }
+
+// The AI's final answer: the second reading's values replace the first's where it gave one.
+function combine(first, second) {
+  if (!second) return first
+  const out = { ...first }
+  for (const [k, v] of Object.entries(second)) if (v !== null && v !== undefined && v !== '') out[k] = v
+  return out
+}
+
+// Reads one voucher.
+//  1. First reading — with worked examples and facts from the company's checked vouchers, when the company is known.
+//  2. The answer is checked against those facts (lengths, usual amounts, sensible date) and the AI's own doubts.
+//  3. If something is missing or looks wrong, a second reading with the stronger model and the examples;
+//     its values replace the doubtful ones.
+//  4. Whatever still looks doubtful is marked on the row so a person looks closely.
+async function readOne(voucher, blob, companies, settings = { firstModel: 'fast', learning: true }) {
   const byId = Object.fromEntries(companies.map((c) => [c.id, c]))
   // A company only suggested by the number history is NOT told to the AI, so the AI gives
   // an independent second opinion.
   const fromHistory = voucher.company_hint?.state === 'history' && voucher.company_id === voucher.company_hint?.history?.company_id
   let company = fromHistory ? null : byId[voucher.company_id] || null
-  const first = await aiReadImage(blob, companies, { company })
+  let knowledge = settings.learning && company ? await companyKnowledge(company.id) : null
+  const firstStrong = settings.firstModel === 'strong'
+  const first = await aiReadImage(blob, companies, { company, strong: firstStrong, knowledge, excludeIds: [voucher.id] })
   let patch = aiPatch(voucher, first)
   if (fromHistory) Object.assign(patch, combineWithAi(voucher, first.company_id))
   // The AI read a voucher number the barcode didn't have: ask the number history about the company too.
@@ -149,23 +184,116 @@ async function readOne(voucher, blob, companies) {
   }
   let after = { ...voucher, ...patch }
   company = company || (after.company_hint?.state !== 'conflict' ? byId[after.company_id] : null) || null
-  if (stillMissing(after, company)) {
+  if (settings.learning && company && !knowledge) knowledge = await companyKnowledge(company.id)
+
+  // Only fields the AI itself filled can be doubted (barcode and typed values are left alone).
+  const filled = patch.ai_data.filled || []
+  let problems = checkReading(first, knowledge).filter((f) => filled.includes(FIELD_COLUMN[f]))
+  const learnedLate = Boolean(knowledge?.examples?.length) && !first.examples_used
+  const alreadyBest = firstStrong && first.examples_used > 0
+  let second = null
+  if (!alreadyBest && (stillMissing(after, company) || problems.length || learnedLate)) {
+    // Clear the doubtful AI values so the second reading can replace them.
+    const base = { ...after }
+    for (const f of problems) base[FIELD_COLUMN[f]] = voucher[FIELD_COLUMN[f]] ?? null
     try {
-      const second = await aiReadImage(blob, companies, { company, strong: true })
-      const patch2 = aiPatch(after, second)
-      const filled = [...new Set([...(patch.ai_data.filled || []), ...(patch2.ai_data.filled || [])])]
-      patch = { ...patch, ...patch2, ai_data: { ...first, second, filled } }
+      second = await aiReadImage(blob, companies, { company, strong: true, knowledge, excludeIds: [voucher.id] })
+      const patch2 = aiPatch(base, second)
+      const filled2 = [...new Set([...filled, ...patch2.ai_data.filled])]
+      patch = { ...patch, ...patch2 }
+      patch.ai_data = { filled: filled2 }
+      after = { ...voucher, ...patch }
+      problems = checkReading(combine(first, second), knowledge).filter((f) => filled2.includes(FIELD_COLUMN[f]))
     } catch {
-      /* keep the first read */
+      /* keep the first reading */
+      patch.ai_data = { filled }
     }
+  }
+  const final = combine(first, second)
+  patch.ai_data = {
+    ...final,
+    company_id: first.company_id ?? final.company_id ?? null,
+    filled: patch.ai_data.filled,
+    problems,
+    learned_from: final.examples_used || 0,
+    first,
+    ...(second ? { second } : {}),
   }
   return patch
 }
+
+// Tests the AI on vouchers people have already checked, without changing anything.
+// Each method reads the same vouchers; the answers are compared with the confirmed values.
+//   methods: [{ key, label, strong, learning }]
+export async function aiTest({ company, companies, count = 10, methods, onProgress }) {
+  const { data, error } = await supabase
+    .from('vouchers')
+    .select('id, batch_id, voucher_number, donor_account, amount, expiry_date, date_text, image_path, thumb_path')
+    .eq('company_id', company.id)
+    .in('status', ['valid', 'post_dated', 'not_valid', 'sent', 'received_success', 'received_pending', 'rejected', 'paid'])
+    .is('deleted_at', null)
+    .not('voucher_number', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(400)
+  if (error) throw error
+  const pool = [...(data || [])]
+  for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]] }
+  const sample = pool.slice(0, count)
+  if (!sample.length) throw new Error(`No checked ${company.name} vouchers to test on yet.`)
+  const knowledge = methods.some((m) => m.learning) ? await companyKnowledge(company.id) : null
+
+  const blobs = new Map()
+  const total = sample.length * methods.length
+  let done = 0
+  const results = Object.fromEntries(methods.map((m) => [m.key, { ...m, fields: {}, mistakes: [], failed: 0 }]))
+  const jobs = []
+  for (const m of methods) for (const v of sample) jobs.push({ m, v })
+
+  async function worker() {
+    while (jobs.length) {
+      const { m, v } = jobs.shift()
+      const r = results[m.key]
+      try {
+        if (!blobs.has(v.id)) {
+          blobs.set(v.id, supabase.storage.from('vouchers').download(v.image_path).then(({ data, error }) => { if (error) throw error; return data }))
+        }
+        const blob = await blobs.get(v.id)
+        const ai = await aiReadImage(blob, companies, { company, strong: m.strong, knowledge: m.learning ? knowledge : null, excludeIds: [v.id] })
+        const compare = [
+          ['voucher_number', 'Voucher no.', ai.voucher_number, v.voucher_number, (a, b) => noZeros(a) === noZeros(b)],
+          ['account_number', 'Account no.', ai.account_number, v.donor_account, (a, b) => noZeros(a) === noZeros(b)],
+          ['amount', 'Amount', ai.amount, v.amount, (a, b) => Number(a) === Number(b)],
+          ['date', 'Date', ai.date, v.expiry_date, (a, b) => a === b],
+        ]
+        for (const [key, label, got, want, same] of compare) {
+          if (want === null || want === undefined || want === '') continue
+          const f = (r.fields[key] = r.fields[key] || { label, right: 0, wrong: 0, blank: 0 })
+          if (got === null || got === undefined || got === '') f.blank++
+          else if (same(got, want)) f.right++
+          else {
+            f.wrong++
+            r.mistakes.push({ voucherId: v.id, batchId: v.batch_id, number: v.voucher_number, field: label, got, want })
+          }
+        }
+      } catch (e) {
+        r.failed++
+        r.error = e.message || String(e)
+      }
+      done++
+      onProgress?.(done, total)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(3, jobs.length) }, worker))
+  return { tested: sample.length, knowledge, results: Object.values(results) }
+}
+
+const noZeros = (s) => String(s ?? '').replace(/\s+/g, '').replace(/^0+/, '')
 
 // Runs the AI over several vouchers, a few at a time.
 //   items: [{ voucher, blob? }] — if blob is missing the image is downloaded from storage
 //   onProgress(done, total)
 export async function aiReadMany(items, companies, onProgress) {
+  const settings = await aiSettings().catch(() => ({ firstModel: 'fast', learning: true }))
   let done = 0
   let updated = 0
   const failures = []
@@ -180,7 +308,7 @@ export async function aiReadMany(items, companies, onProgress) {
           if (error) throw error
           image = data
         }
-        const patch = await readOne(voucher, image, companies)
+        const patch = await readOne(voucher, image, companies, settings)
         const { error } = await supabase.from('vouchers').update(patch).eq('id', voucher.id)
         if (error) throw error
         updated++
