@@ -6,6 +6,7 @@ import { useAuth } from '../auth.jsx'
 import { reextract } from '../lib/reextract.js'
 import { ErrorBox, StatusPill } from '../components.jsx'
 import { duplicateFields, findDuplicate } from '../lib/duplicates.js'
+import { recordCorrections } from '../lib/corrections.js'
 
 const EDITABLE = ['pending', 'valid', 'post_dated', 'not_valid']
 
@@ -183,6 +184,7 @@ export default function VoucherEditor({ batch, vouchers, companies, currentId, o
         .select()
         .single()
       if (error) throw error
+      if (data.status !== 'pending') recordCorrections(current, data, companies, session.user.id)
       const list = vouchers.map((v) => (v.id === data.id ? data : v))
       onSaved(list)
       const next = nextPendingAfter(list, index)

@@ -4,7 +4,7 @@
 import { supabase } from './supabase.js'
 import { parseHebrewDate } from './hebrewDate.js'
 import { combineWithAi, suggestCompany } from './companyGuess.js'
-import { checkReading, companyKnowledge, exampleImages } from './aiLearning.js'
+import { checkReading, companyKnowledge, exampleImages, learnedCrops, sampleImages } from './aiLearning.js'
 
 export async function aiEnabled() {
   const { data } = await supabase.from('app_settings').select('value').eq('key', 'ai_reading').maybeSingle()
@@ -72,17 +72,22 @@ export async function aiReadImage(blob, companies, { company = null, strong = fa
   const crops = []
   try {
     image = jpeg(bitmap, [0, 0, 1, 1], 2000, 2000)
+    // Close-ups of the places learned for this company first, then any the admin ticked.
+    if (company && knowledge) crops.push(...learnedCrops(bitmap, knowledge))
     for (const key of company?.ai_crop || []) {
       const preset = CLOSE_UPS[key]
-      if (preset) crops.push({ label: preset.label, image: jpeg(bitmap, preset.area, 1400, 900, 2) })
+      if (preset && crops.length < 6) crops.push({ label: preset.label, image: jpeg(bitmap, preset.area, 1400, 900, 2) })
     }
   } finally {
     if (typeof bitmap.close === 'function') bitmap.close()
   }
-  const examples = company && knowledge ? await exampleImages(knowledge, excludeIds) : []
+  const [examples, samples] = company && knowledge
+    ? await Promise.all([exampleImages(knowledge, excludeIds), sampleImages(knowledge, excludeIds)])
+    : [[], []]
   const { data, error } = await supabase.functions.invoke('read-voucher', {
     body: {
       examples,
+      samples,
       facts: company && knowledge ? knowledge.facts : '',
       image,
       media_type: 'image/jpeg',

@@ -5,6 +5,7 @@ import { METHOD_LABELS, money, date } from '../lib/format.js'
 import { CLOSE_UPS } from '../lib/ai.js'
 import { useAuth } from '../auth.jsx'
 import { ErrorBox, Modal } from '../components.jsx'
+import LearnedPanel from '../components/LearnedPanel.jsx'
 
 const EMPTY = {
   name: '', submission_method: 'physical', report_email: '', portal_url: '', address: '',
@@ -202,6 +203,14 @@ function CompanyForm({ initial, onClose, onSaved }) {
             </label>
           ))}
         </div>
+
+        {!isNew && (
+          <>
+            <h3>What the AI has learned</h3>
+            <p className="muted small">Learned automatically from vouchers people checked and corrected — nothing to fill in.</p>
+            <LearnedPanel companyId={initial.id} />
+          </>
+        )}
 
         <label>Notes<input value={f.notes || ''} onChange={(e) => set('notes', e.target.value)} /></label>
         <ErrorBox error={error} />

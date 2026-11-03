@@ -1,4 +1,4 @@
-// VoucherFlow — read-voucher (version 3: learns from checked vouchers)
+// VoucherFlow — read-voucher (version 4: learns from checked vouchers, their layout and the corrections people made)
 // Reads one charity voucher image with Claude and returns the details it can see.
 // The Claude API key is stored as the Supabase secret ANTHROPIC_API_KEY and never leaves this function.
 import { createClient } from 'jsr:@supabase/supabase-js@2'
@@ -21,6 +21,22 @@ function json(body: unknown, status = 200) {
 type Crop = { label: string; image: string }
 // A voucher of the same company already checked by a person: its picture and the correct values.
 type Example = { image: string; answer: Record<string, unknown> }
+// A close-up from a checked voucher with what it really says (teaches this company's number shapes).
+type Sample = { text: string; image: string }
+
+// Keeps only sensible [left, top, width, height] boxes (fractions 0–1).
+function cleanBoxes(b: unknown) {
+  const out: Record<string, number[]> = {}
+  if (!b || typeof b !== 'object') return out
+  for (const k of ['voucher_number', 'account_number', 'amount', 'date']) {
+    const v = (b as Record<string, unknown>)[k]
+    if (!Array.isArray(v) || v.length !== 4) continue
+    const n = v.map(Number)
+    if (n.some((x) => !Number.isFinite(x) || x < 0 || x > 1) || n[2] <= 0 || n[3] <= 0) continue
+    out[k] = n.map((x) => Math.round(x * 1000) / 1000)
+  }
+  return out
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
@@ -43,9 +59,10 @@ Deno.serve(async (req) => {
     const { image, media_type, companies, company, hints, model } = body
     const crops: Crop[] = Array.isArray(body.crops) ? body.crops.slice(0, 6) : []
     const examples: Example[] = Array.isArray(body.examples) ? body.examples.filter((e: Example) => e?.image).slice(0, 4) : []
-    const facts = typeof body.facts === 'string' ? body.facts.slice(0, 2000) : ''
+    const samples: Sample[] = Array.isArray(body.samples) ? body.samples.filter((e: Sample) => e?.image).slice(0, 6) : []
+    const facts = typeof body.facts === 'string' ? body.facts.slice(0, 4000) : ''
     if (!image || typeof image !== 'string') return json({ error: 'No image sent' }, 400)
-    const size = image.length + [...crops, ...examples].reduce((n, c) => n + (c.image?.length || 0), 0)
+    const size = image.length + [...crops, ...examples, ...samples].reduce((n, c) => n + (c.image?.length || 0), 0)
     if (size > 12_000_000) return json({ error: 'Images too large' }, 413)
     const names: string[] = Array.isArray(companies) ? companies.slice(0, 100).map(String) : []
     const modelId = MODELS[model] || MODELS.fast
@@ -58,13 +75,15 @@ Deno.serve(async (req) => {
     const instructions = `This is a scanned UK charity voucher (like a cheque) issued by a voucher company to a donor.
 ${about}
 ${examples.length ? `You were first shown ${examples.length} example voucher(s) from the same company with their correct readings, checked by a person. Use them to learn where each detail is and how it looks (e.g. handwriting style, number length) — but read THIS voucher's own values; never copy values from the examples.` : ''}
+${samples.length ? `You were also shown close-ups from checked vouchers of the same company with what they really say — study how this company's digits and handwriting look, so you read the same shapes correctly here.` : ''}
 ${crops.length ? `After the full voucher you also get zoomed close-ups of parts of it (labelled) — use them to read small print.` : ''}
 
 Reply with ONLY a JSON object, no other text:
 {"company": string|null, "voucher_number": string|null, "account_number": string|null,
  "amount": number|null, "amount_words": string|null,
  "date": "YYYY-MM-DD"|null, "date_text": string|null, "date_hebrew": string|null,
- "unsure": string[]}
+ "unsure": string[],
+ "boxes": {"voucher_number": [l,t,w,h], "account_number": [l,t,w,h], "amount": [l,t,w,h], "date": [l,t,w,h]}}
 
 How to read each field:
 - company: ${company ? `"${company}".` : 'chosen EXACTLY from the list above, or null if unsure.'}
@@ -78,6 +97,8 @@ How to read each field:
   If it is a Hebrew date: put it in date_hebrew as "day monthname year" with an English month name and full year,
   e.g. "15 Cheshvan 5787" (use Adar I / Adar II where relevant), and set date to null — it will be converted exactly.
   Otherwise give date as YYYY-MM-DD (UK order: day/month/year) and date_hebrew null.
+- boxes: for each field you found, WHERE it is on the full voucher image (not the close-ups): [left, top, width, height]
+  as fractions of the image width and height (0 to 1), tightly around the value itself (not its label). Leave out fields you didn't find.
 - unsure: names of the fields above you could read but are NOT sure about (e.g. a digit that could be 1 or 7), else [].
 - Use null for anything you cannot read. Do not invent values.`
 
@@ -86,8 +107,12 @@ How to read each field:
       content.push({ type: 'text', text: `Example ${i + 1} (already checked by a person). Correct reading: ${JSON.stringify(ex.answer)}` })
       content.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: ex.image } })
     })
+    for (const sm of samples) {
+      content.push({ type: 'text', text: `Close-up from a checked voucher: ${String(sm.text || '')}` })
+      content.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: sm.image } })
+    }
     content.push(
-      { type: 'text', text: examples.length ? 'Now the voucher to read — full voucher:' : 'Full voucher:' },
+      { type: 'text', text: examples.length || samples.length ? 'Now the voucher to read — full voucher:' : 'Full voucher:' },
       { type: 'image', source: { type: 'base64', media_type: media_type || 'image/jpeg', data: image } },
     )
     for (const c of crops) {
@@ -100,7 +125,7 @@ How to read each field:
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model: modelId, max_tokens: 500, messages: [{ role: 'user', content }] }),
+      body: JSON.stringify({ model: modelId, max_tokens: 800, messages: [{ role: 'user', content }] }),
     })
     const out = await res.json()
     if (!res.ok) return json({ error: out?.error?.message || `Claude API error ${res.status}` }, 502)
@@ -120,6 +145,7 @@ How to read each field:
       date: /^\d{4}-\d{2}-\d{2}$/.test(f.date || '') ? f.date : null,
       date_text: str(f.date_text),
       date_hebrew: str(f.date_hebrew),
+      boxes: cleanBoxes(f.boxes),
       unsure: Array.isArray(f.unsure) ? f.unsure.map(String).slice(0, 10) : [],
       examples_used: examples.length,
       model: modelId,

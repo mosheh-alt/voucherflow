@@ -230,8 +230,8 @@ function AiTestBench() {
       {known && (
         <p className="small">
           Learned so far for this company: <strong>{known.checked}</strong> checked voucher(s){known.checked >= 300 ? ' (latest 300 used)' : ''},
-          {' '}<strong>{known.corrections}</strong> AI mistake(s) corrected, {known.examples.length ? `${Math.min(3, known.examples.length)} example(s) ready` : 'no examples yet'}.
-          {known.facts && <><br /><span className="muted">Patterns: {known.facts}.</span></>}
+          {' '}<strong>{known.corrections.length}</strong> AI correction(s) recorded, {known.examples.length ? `${Math.min(3, known.examples.length)} example(s) ready` : 'no examples yet'}.
+          {known.facts && <><br /><span className="muted">What it's told: {known.facts}.</span></>}
         </p>
       )}
       <ErrorBox error={error} />

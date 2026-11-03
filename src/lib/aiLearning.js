@@ -5,7 +5,12 @@
 //      wrong before — so every correction a person makes teaches the next reading;
 //   2. works out facts (voucher numbers are 7 digits, account numbers 4–5 digits, common amounts,
 //      Hebrew dates…) that are given to the AI and used to check its answers;
-//   3. flags answers that don't fit those facts, so they get a second, stronger reading.
+//   3. flags answers that don't fit those facts, so they get a second, stronger reading;
+//   4. learns WHERE each detail is on that company's voucher (from where the AI found values that
+//      turned out right) and sends zoomed close-ups of exactly those places;
+//   5. learns from every correction people made (ai_corrections): which digits get misread as what,
+//      dropped zeros, swapped day/month, boxes mixed up… — and shows the AI close-ups of the
+//      corrected values, so it learns how this company's numbers and handwriting look.
 import { supabase } from './supabase.js'
 
 const VALIDATED = ['valid', 'post_dated', 'not_valid', 'sent', 'received_success', 'received_pending', 'rejected', 'paid']
@@ -13,6 +18,9 @@ const SAMPLE = 300
 const MAX_EXAMPLES = 3
 const CACHE_MS = 10 * 60 * 1000
 const HEBREW = /[֐-׿]/
+
+export const FIELD_LABELS = { voucher_number: 'voucher number', account_number: 'account number', amount: 'amount', date: 'date' }
+const FIELD_VALUE = { voucher_number: 'voucher_number', account_number: 'donor_account', amount: 'amount', date: 'expiry_date' }
 
 const knowledgeCache = new Map() // company id → { at, promise }
 const imageCache = new Map() // voucher id → promise of base64 JPEG
@@ -114,10 +122,46 @@ async function buildKnowledge(companyId) {
     if (examples.length >= MAX_EXAMPLES + 2) break // a couple spare, in case one is the voucher being read
   }
 
+  // Where each detail is: the middle of the places where the AI found values that were confirmed right.
+  const layout = {}
+  const layoutCount = {}
+  for (const field of Object.keys(FIELD_LABELS)) {
+    const boxes = rows
+      .filter((r) => r.ai_data?.boxes?.[field] && valueRight(field, r.ai_data, r))
+      .map((r) => r.ai_data.boxes[field])
+    layoutCount[field] = boxes.length
+    if (boxes.length >= 3) {
+      const med = [0, 1, 2, 3].map((i) => median(boxes.map((b) => b[i])))
+      const spread = median(boxes.map((b) => Math.abs(b[0] - med[0]) + Math.abs(b[1] - med[1])))
+      if (spread < 0.15) layout[field] = med // the place is consistent on this company's vouchers
+    }
+  }
+  if (Object.keys(layout).length) {
+    facts.push('where details usually are (from the top-left corner, as % of width/height): ' +
+      Object.entries(layout).map(([f, b]) => `${FIELD_LABELS[f]} around ${Math.round(b[0] * 100)}% across, ${Math.round(b[1] * 100)}% down`).join('; '))
+  }
+
+  // Lessons from the corrections people made.
+  const { data: corr } = await supabase
+    .from('ai_corrections')
+    .select('voucher_id, field, source, wrong_value, right_value, kind, detail, created_at')
+    .eq('company_id', companyId)
+    .order('created_at', { ascending: false })
+    .limit(500)
+  const corrections = corr || []
+  const lessons = lessonsFrom(corrections.filter((c) => c.source === 'ai'))
+  if (lessons.length) facts.push('LESSONS from mistakes people corrected on these vouchers: ' + lessons.join('; '))
+  const barcodeMistakes = corrections.filter((c) => c.source === 'barcode')
+
   return {
+    layout,
+    layoutCount,
+    lessons,
+    corrections: corrections.filter((c) => c.source === 'ai'),
+    barcodeMistakes,
     companyId,
     checked: rows.length,
-    corrections: corrected.length,
+    aiWrongVouchers: corrected.length,
     facts: facts.join('; '),
     numberLengths: numberLengths ? new Set(numberLengths) : null,
     accountLengths: accountLengths ? new Set(accountLengths) : null,
@@ -198,4 +242,138 @@ export const PROBLEM_LABELS = {
   account_number: 'account no.',
   amount: 'amount',
   date: 'date',
+}
+
+function median(list) {
+  const a = [...list].sort((x, y) => x - y)
+  const m = Math.floor(a.length / 2)
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2
+}
+
+function valueRight(field, ai, r) {
+  const got = field === 'account_number' ? ai.account_number : ai[field]
+  const want = r[FIELD_VALUE[field]]
+  if (got == null || want == null) return false
+  if (field === 'amount') return Number(got) === Number(want)
+  return noZeros(got) === noZeros(want)
+}
+
+// Turns the corrections into short lessons for the AI (only patterns seen at least twice).
+export function lessonsFrom(corrections) {
+  const out = []
+  const count = (pred) => corrections.filter(pred).length
+  // Misread characters: "1→4" means the AI read 1 where it was really 4.
+  const pairs = new Map()
+  for (const c of corrections) {
+    if (c.kind !== 'digits' || !c.detail) continue
+    for (const p of c.detail.split(', ')) pairs.set(p, (pairs.get(p) || 0) + 1)
+  }
+  for (const [p, n] of [...pairs.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6)) {
+    if (n < 2) break
+    const [a, b] = p.split('→')
+    out.push(`in this company's writing/font a character that looks like "${a}" was really "${b}" ${n} times — look closely before reading "${a}"`)
+  }
+  for (const f of Object.keys(FIELD_LABELS)) {
+    const label = FIELD_LABELS[f]
+    const lz = count((c) => c.field === f && c.kind === 'leading_zero')
+    if (lz >= 2) out.push(`the ${label} keeps its leading zero(s) — dropped ${lz} times`)
+    const miss = count((c) => c.field === f && c.kind === 'missing_digit')
+    if (miss >= 2) out.push(`a character of the ${label} was missed ${miss} times — count every digit`)
+    const extra = count((c) => c.field === f && c.kind === 'extra_digit')
+    if (extra >= 2) out.push(`an extra character was added to the ${label} ${extra} times`)
+    const none = count((c) => c.field === f && c.kind === 'not_on_voucher')
+    if (none >= 2) out.push(`a ${label} was given ${none} times when the voucher had none — give null if it isn't there`)
+    const places = corrections.filter((c) => c.field === f && c.kind === 'wrong_place')
+    if (places.length >= 2) out.push(`the ${label} was mixed up with another box ${places.length} times (${places[0].detail}) — take it only from its own place`)
+  }
+  const dm = count((c) => c.kind === 'day_month')
+  if (dm >= 2) out.push(`day and month were swapped ${dm} times — dates are written day/month/year`)
+  const amounts = corrections.filter((c) => c.field === 'amount' && c.kind === 'different')
+  if (amounts.length >= 2) {
+    out.push(`amounts were misread ${amounts.length} times (e.g. ${amounts.slice(0, 3).map((c) => `£${c.wrong_value} instead of £${c.right_value}`).join(', ')}) — check figures against the words`)
+  }
+  return out
+}
+
+// Close-ups of values people corrected, cut from those checked vouchers at full resolution,
+// so the AI sees how this company's digits and handwriting really look.
+const sampleCache = new Map()
+export async function sampleImages(knowledge, excludeIds = [], max = 3) {
+  if (!knowledge?.corrections?.length) return []
+  const picks = []
+  for (const c of knowledge.corrections) {
+    if (excludeIds.includes(c.voucher_id) || !c.right_value) continue
+    if (!['voucher_number', 'account_number', 'date', 'amount'].includes(c.field)) continue
+    if (picks.some((p) => p.voucher_id === c.voucher_id || (p.field === c.field && p.right_value === c.right_value))) continue
+    picks.push(c)
+    if (picks.length >= max) break
+  }
+  const out = await Promise.all(picks.map(async (c) => {
+    try {
+      const image = await sampleImage(c, knowledge.layout)
+      if (!image) return null
+      const right = c.field === 'amount' ? `£${c.right_value}` : `"${c.right_value}"`
+      const wrong = c.field === 'amount' ? `£${c.wrong_value}` : `"${c.wrong_value}"`
+      return { image, text: `the ${FIELD_LABELS[c.field]} here is ${right} (it was once misread as ${wrong})` }
+    } catch {
+      return null
+    }
+  }))
+  return out.filter(Boolean)
+}
+
+function sampleImage(c, layout) {
+  const key = `${c.voucher_id}|${c.field}`
+  if (!sampleCache.has(key)) {
+    sampleCache.set(key, (async () => {
+      const { data: v } = await supabase.from('vouchers').select('image_path, ai_data').eq('id', c.voucher_id).maybeSingle()
+      const box = v?.ai_data?.boxes?.[c.field] || layout?.[c.field]
+      if (!v?.image_path || !box) return null
+      const { data, error } = await supabase.storage.from('vouchers').download(v.image_path)
+      if (error) throw error
+      const bitmap = await createImageBitmap(data)
+      try {
+        return cropJpeg(bitmap, padBox(box, 0.6), 900)
+      } finally {
+        if (typeof bitmap.close === 'function') bitmap.close()
+      }
+    })().catch((e) => { sampleCache.delete(key); throw e }))
+  }
+  return sampleCache.get(key)
+}
+
+// Makes a box bigger on every side (the AI's boxes are approximate), staying inside the picture.
+export function padBox([l, t, w, h], pad = 0.5) {
+  const pw = Math.max(w * pad, 0.04)
+  const ph = Math.max(h * pad, 0.04)
+  const left = Math.max(0, l - pw)
+  const top = Math.max(0, t - ph)
+  return [left, top, Math.min(1, l + w + pw) - left, Math.min(1, t + h + ph) - top]
+}
+
+// Cuts part of a picture out, enlarged, as base64 JPEG.
+export function cropJpeg(bitmap, [fx, fy, fw, fh], minWidth = 900) {
+  const sx = Math.round(fx * bitmap.width)
+  const sy = Math.round(fy * bitmap.height)
+  const sw = Math.max(1, Math.round(fw * bitmap.width))
+  const sh = Math.max(1, Math.round(fh * bitmap.height))
+  const scale = Math.min(3, Math.max(1, minWidth / sw), 1600 / sw, 1200 / sh)
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(sw * scale))
+  canvas.height = Math.max(1, Math.round(sh * scale))
+  const ctx = canvas.getContext('2d')
+  ctx.fillStyle = '#fff'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height)
+  return canvas.toDataURL('image/jpeg', 0.9).split(',')[1]
+}
+
+// Close-ups of the voucher being read, at the places learned for this company.
+export function learnedCrops(bitmap, knowledge) {
+  const out = []
+  for (const [field, box] of Object.entries(knowledge?.layout || {})) {
+    out.push({ label: `where the ${FIELD_LABELS[field]} usually is on this company's vouchers`, image: cropJpeg(bitmap, padBox(box, 0.6), 1000) })
+  }
+  return out
 }

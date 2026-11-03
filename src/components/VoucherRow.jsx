@@ -8,6 +8,7 @@ import { useAuth } from '../auth.jsx'
 import { StatusPill } from '../components.jsx'
 import { duplicateFields, findDuplicate } from '../lib/duplicates.js'
 import { PROBLEM_LABELS } from '../lib/aiLearning.js'
+import { recordCorrections } from '../lib/corrections.js'
 
 const EDITABLE = ['pending', 'valid', 'post_dated', 'not_valid']
 
@@ -207,6 +208,8 @@ const VoucherRow = forwardRef(function VoucherRow(
         validated_by: session.user.id,
         validated_at: new Date().toISOString(),
       })
+      // Teach the AI: what did the barcode / AI give that the person changed?
+      recordCorrections(v, values, companies, session.user.id)
       onNext(v.id)
     } catch (err) {
       setProblem(err.message)
