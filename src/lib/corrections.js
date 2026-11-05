@@ -9,6 +9,7 @@ export const FIELDS = {
   account_number: ['donor_account', 'account_number', 'donor_account'],
   amount: ['amount', 'amount', 'amount'],
   date: ['expiry_date', 'date', 'expiry_date'],
+  validity: ['validity_months', 'valid_months', '__none__'], // a stamp like "VALID FOR 3 MONTHS"
 }
 
 const text = (v) => (v === null || v === undefined || v === '' ? null : String(v).replace(/\s+/g, ''))
@@ -30,9 +31,10 @@ export function classify(field, wrong, right, finalValues = {}) {
   const w = text(wrong)
   const r = text(right)
   if (r === null) return { kind: 'not_on_voucher', detail: null }
+  if (field === 'validity') return { kind: 'different', detail: `${w}→${r} months` }
   // The value of another box on the voucher was read into this one.
   for (const [other, [column]] of Object.entries(FIELDS)) {
-    if (other !== field && other !== 'amount' && text(finalValues[column]) === w) return { kind: 'wrong_place', detail: `read the ${other.replace('_', ' ')}` }
+    if (other !== field && other !== 'amount' && other !== 'validity' && text(finalValues[column]) === w) return { kind: 'wrong_place', detail: `read the ${other.replace('_', ' ')}` }
   }
   if (field === 'date') {
     const [y1, m1, d1] = w.split('-')
@@ -74,6 +76,7 @@ export async function recordCorrections(voucher, final, companies, userId, opts 
         const wrong = values[keyOf(field)]
         const right = final[FIELDS[field][0]]
         // The AI left it blank but the person found it on the voucher: it missed it.
+        if (field === 'validity' && String(right) === '0') continue // "no expiry" chosen by a person isn't a stamp
         if (source === 'ai' && text(wrong) === null && text(right) !== null && !values.error &&
             !(field === 'account_number' && opts.accountFromSuggestion)) {
           rows.push({ voucher_id: voucher.id, company_id: companyId, field, source, wrong_value: null, right_value: text(right), kind: 'missed', detail: null, model, created_by: userId })

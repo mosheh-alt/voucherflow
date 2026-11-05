@@ -340,3 +340,7 @@ ul.plain { list-style: none; padding-left: 0; }
 .img-loading { display: block; width: 100%; height: 100%; min-height: 36px; border-radius: 4px;
   background: linear-gradient(90deg, #eef0f3 25%, #f7f8fa 50%, #eef0f3 75%); background-size: 200% 100%; animation: shimmer 1.2s infinite; }
 @keyframes shimmer { from { background-position: 200% 0 } to { background-position: -200% 0 } }
+
+/* How long this voucher is valid (stamp override) */
+.valid-chip { display: block; margin-top: 4px; font-size: 11px; padding: 2px 4px; border: 1px solid var(--line); border-radius: 999px; background: #fafbfc; color: var(--muted); max-width: 210px; }
+.valid-chip.own { background: var(--bad-bg); color: var(--bad); border-color: #f0c3bf; font-weight: 600; }

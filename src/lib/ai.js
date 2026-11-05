@@ -63,7 +63,7 @@ function jpeg(bitmap, area, maxWidth, maxHeight, upscale = 1) {
 }
 
 // The version of the "read-voucher" function this app expects (see supabase/functions/read-voucher).
-export const AI_FUNCTION_VERSION = 10
+export const AI_FUNCTION_VERSION = 11
 
 // Checks the AI function: is it reachable, up to date, and is the AI key set?
 // Returns { ok, version, problem }.
@@ -218,6 +218,11 @@ export function aiPatch(voucher, ai) {
     patch.expiry_date = ai.date
     if (ai.date_hebrew) patch.date_text = ai.date_text || ai.date_hebrew
     filled.push('expiry_date')
+  }
+  // A stamp limiting how long the voucher is valid (e.g. "VALID FOR 3 MONTHS"): applied unless a person set one.
+  if (ai.valid_months > 0 && (voucher.validity_months === null || voucher.validity_months === undefined)) {
+    patch.validity_months = ai.valid_months
+    filled.push('validity_months')
   }
   patch.ai_data = { ...ai, filled }
   return patch
@@ -431,7 +436,12 @@ export async function aiReadMany(items, companies, onProgress) {
           image = data
         }
         const patch = await readOne(voucher, image, companies, settings)
-        const { error } = await supabase.from('vouchers').update(patch).eq('id', voucher.id)
+        let { error } = await supabase.from('vouchers').update(patch).eq('id', voucher.id)
+        if (error && /validity_months/.test(error.message || '')) {
+          // Database update 18 not run yet: save without the stamp validity (it's still in ai_data).
+          delete patch.validity_months
+          ;({ error } = await supabase.from('vouchers').update(patch).eq('id', voucher.id))
+        }
         if (error) throw error
         updated++
       } catch (e) {

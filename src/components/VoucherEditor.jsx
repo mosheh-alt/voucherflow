@@ -215,6 +215,7 @@ export default function VoucherEditor({ batch, vouchers, companies, currentId, o
       expiry_date: values.expiry_date,
       receivedDate: batch.received_date,
       today: today(),
+      validityMonths: current.validity_months ?? null,
     })
     setWarning(status === 'not_valid'
       ? `Previous voucher ${values.voucher_number} saved as NOT VALID: ${reason}`
@@ -290,7 +291,7 @@ export default function VoucherEditor({ batch, vouchers, companies, currentId, o
             <div className="alert warn">{selectedCompany.name} is marked as no longer accepted.</div>
           )}
           {form.expiry_date && (() => {
-            const r = decideStatus({ company: selectedCompany, expiry_date: form.expiry_date, receivedDate: batch.received_date, today: today() })
+            const r = decideStatus({ company: selectedCompany, expiry_date: form.expiry_date, receivedDate: batch.received_date, today: today(), validityMonths: current.validity_months ?? null })
             if (r.status === 'not_valid') return <div className="alert warn">{r.reason} — will be saved as not valid.</div>
             if (r.status === 'post_dated') return <div className="alert warn">{r.reason} — will be saved as post-dated.</div>
             if (r.urgent) return <div className="alert warn">Urgent: expires {date(r.sendBy)} — send within 1–2 days.</div>

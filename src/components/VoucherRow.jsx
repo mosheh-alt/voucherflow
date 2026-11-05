@@ -26,6 +26,7 @@ function draftFrom(v) {
     amount: v.amount ?? '',
     expiry_date: v.expiry_date || '',
     date_text: v.date_text || '',
+    validity_months: v.validity_months ?? '',
   }
 }
 
@@ -39,6 +40,8 @@ function clean(d) {
   }
   // Only sent when a Hebrew (written) date is involved.
   if (d.date_text) out.date_text = d.expiry_date ? d.date_text : null
+  // Only sent when this voucher has its own validity (e.g. a "valid for 3 months" stamp).
+  if (d.validity_months !== '' && d.validity_months !== null && d.validity_months !== undefined) out.validity_months = Number(d.validity_months)
   return out
 }
 
@@ -159,7 +162,7 @@ const VoucherRow = forwardRef(function VoucherRow(
       return out
     })
     synced.current = fresh
-  }, [v.voucher_number, v.donor_account, v.company_id, v.amount, v.expiry_date, v.date_text, v.updated_at])
+  }, [v.voucher_number, v.donor_account, v.company_id, v.amount, v.expiry_date, v.date_text, v.validity_months, v.updated_at])
 
   useImperativeHandle(ref, () => ({
     focus() {
@@ -206,10 +209,26 @@ const VoucherRow = forwardRef(function VoucherRow(
     }
   }
 
+  // This voucher's own validity (e.g. a "VALID FOR 3 MONTHS" stamp); null = the company's rule.
+  const ownValidity = d.validity_months === '' || d.validity_months === null || d.validity_months === undefined ? null : Number(d.validity_months)
+  async function setValidity(value) {
+    setD((x) => ({ ...x, validity_months: value }))
+    try {
+      await update({ validity_months: value === '' ? null : Number(value) })
+    } catch (e) {
+      setProblem(/validity_months/.test(e.message || '') ? 'To set a voucher\'s own validity, run database update 018 in Supabase first.' : e.message)
+    }
+  }
+  const companyRule = (() => {
+    const c = companyById[d.company_id]
+    if (c?.date_type === 'issue' && Number(c.validity_months) > 0) return `${c.validity_months} months (company rule)`
+    return 'no expiry (company rule)'
+  })()
+
   // Live check of the date on the voucher, so problems show before validating.
   const dateCheck = (() => {
     if (!d.expiry_date || !EDITABLE.includes(v.status)) return null
-    const r = decideStatus({ company: companyById[d.company_id], expiry_date: d.expiry_date, receivedDate: batch.received_date, today: today() })
+    const r = decideStatus({ company: companyById[d.company_id], expiry_date: d.expiry_date, receivedDate: batch.received_date, today: today(), validityMonths: ownValidity })
     if (r.status === 'not_valid') return { kind: 'bad-text', text: r.reason }
     if (r.status === 'post_dated') return { kind: 'warn-text', text: r.reason }
     if (r.urgent) return { kind: 'warn-text', text: `Urgent: expires ${date(r.sendBy)}` }
@@ -276,6 +295,7 @@ const VoucherRow = forwardRef(function VoucherRow(
         expiry_date: values.expiry_date,
         receivedDate: batch.received_date,
         today: today(),
+        validityMonths: ownValidity,
       })
       await update({
         ...values,
@@ -386,6 +406,14 @@ const VoucherRow = forwardRef(function VoucherRow(
           : date(v.expiry_date)}
         {d.date_text && <div className="small muted" dir="auto">{d.date_text}</div>}
         {dateCheck && <div className={`small ${dateCheck.kind}`}>{dateCheck.text}</div>}
+        {editable && d.expiry_date && (
+          <select className={`valid-chip ${ownValidity !== null ? 'own' : ''}`} value={d.validity_months === null ? '' : String(d.validity_months)}
+            onChange={(e) => setValidity(e.target.value)} title="How long this voucher is valid — change it if a stamp says otherwise">
+            <option value="">Valid: {companyRule}</option>
+            {[1, 2, 3, 4, 5, 6, 9, 12].map((n) => <option key={n} value={n}>Valid {n} month{n === 1 ? '' : 's'} (this voucher)</option>)}
+            <option value="0">No expiry (this voucher)</option>
+          </select>
+        )}
       </td>
       <td className="status-cell">
         <StatusPill status={v.status} />
@@ -422,6 +450,11 @@ const VoucherRow = forwardRef(function VoucherRow(
             <span className="flag bad" title={v.ai_data.error}>AI couldn't read it — use Re-read barcodes ▾ → Read with AI</span>
           )}
           {aiFilled.length > 0 && <span className="flag ai-flag" title="Filled in by AI — please check against the picture">AI – check</span>}
+          {v.status === 'pending' && v.ai_data?.valid_months > 0 && (
+            <span className="flag bad" title="The AI found a stamp or note on the voucher with a different validity">
+              Stamp: valid for {v.ai_data.valid_months} month{v.ai_data.valid_months === 1 ? '' : 's'}
+            </span>
+          )}
           {aiDoubts.length > 0 && (
             <span className="flag warn" title="The AI wasn't sure, or the value doesn't fit this company's usual pattern">
               AI unsure: {aiDoubts.map((p) => PROBLEM_LABELS[p] || p).join(', ')}

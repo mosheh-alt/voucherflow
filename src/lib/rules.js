@@ -165,8 +165,13 @@ export function daysBetween(fromIso, toIso) {
 // (e.g. AAC: "valid for 6 months from the date"), that's the date plus the validity period.
 // Only companies whose date starts a validity period (e.g. AAC: 6 months) have a last valid day.
 // For all others the date is just when the voucher was written, and it doesn't expire.
-export function lastValidDate(company, voucherDate) {
+// override: months this particular voucher is valid for (e.g. a "VALID FOR 3 MONTHS" stamp);
+//   null = the company's rule, 0 = no expiry.
+export function lastValidDate(company, voucherDate, override = null) {
   if (!voucherDate) return null
+  if (override !== null && override !== undefined && override !== '') {
+    return Number(override) > 0 ? addMonths(voucherDate, Number(override)) : null
+  }
   if (company && company.date_type === 'issue' && Number(company.validity_months) > 0) {
     return addMonths(voucherDate, company.validity_months)
   }
@@ -176,7 +181,9 @@ export function lastValidDate(company, voucherDate) {
 // Decide the status when a voucher is validated.
 //   expiry_date: the date written on the voucher;  receivedDate: batch drop-off date;  today: yyyy-mm-dd
 // Returns { status, reason, sendBy, urgent, daysLeft }
-export function decideStatus({ company, expiry_date, receivedDate, today }) {
+export function decideStatus({ company, expiry_date, receivedDate, today, validityMonths = null }) {
+  const own = validityMonths !== null && validityMonths !== undefined && validityMonths !== '' && Number(validityMonths) > 0
+  const note = own ? ` (valid for ${validityMonths} month${Number(validityMonths) === 1 ? '' : 's'})` : ''
   if (company && company.accepted === false) {
     return { status: 'not_valid', reason: 'Company no longer accepted', sendBy: null, urgent: false }
   }
@@ -185,17 +192,17 @@ export function decideStatus({ company, expiry_date, receivedDate, today }) {
     return {
       status: 'post_dated',
       reason: `Post-dated: valid from ${expiry_date.split('-').reverse().join('/')}`,
-      sendBy: lastValidDate(company, expiry_date),
+      sendBy: lastValidDate(company, expiry_date, validityMonths),
       holdUntil: expiry_date,
       urgent: false,
     }
   }
-  const sendBy = lastValidDate(company, expiry_date)
+  const sendBy = lastValidDate(company, expiry_date, validityMonths)
   if (sendBy && receivedDate && sendBy < receivedDate) {
-    return { status: 'not_valid', reason: 'Expired at drop-off', sendBy, urgent: false }
+    return { status: 'not_valid', reason: `Expired at drop-off${note}`, sendBy, urgent: false }
   }
   if (sendBy && today && sendBy < today) {
-    return { status: 'not_valid', reason: `Expired on ${sendBy.split('-').reverse().join('/')}`, sendBy, urgent: false }
+    return { status: 'not_valid', reason: `Expired on ${sendBy.split('-').reverse().join('/')}${note}`, sendBy, urgent: false }
   }
   const warnDays = Number(company?.urgent_days ?? 3)
   const daysLeft = sendBy && today ? daysBetween(today, sendBy) : null

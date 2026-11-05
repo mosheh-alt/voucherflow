@@ -1,10 +1,10 @@
-// VoucherFlow — read-voucher (version 10: handwritten Hebrew dates read right to left; short Hebrew-date years kept as written; reads one area a person marked; company mix-ups learned; health check; answers through a fixed form, so replies are always readable; learns from checked vouchers, their layout and the corrections people made)
+// VoucherFlow — read-voucher (version 11: stamps limiting validity; handwritten Hebrew dates read right to left; short Hebrew-date years kept as written; reads one area a person marked; company mix-ups learned; health check; answers through a fixed form, so replies are always readable; learns from checked vouchers, their layout and the corrections people made)
 // Reads one charity voucher image with Claude and returns the details it can see.
 // The Claude API key is stored as the Supabase secret ANTHROPIC_API_KEY and never leaves this function.
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
 // The app checks this number and warns when this function needs updating.
-const VERSION = 10
+const VERSION = 11
 
 const MODELS: Record<string, string> = {
   fast: 'claude-haiku-5-5',     // first read: quick and very cheap
@@ -120,6 +120,10 @@ How to read each field:
   Otherwise give date as YYYY-MM-DD (UK order: day/month/year) and date_hebrew null.
 - boxes: for each field you found, WHERE it is on the full voucher image (not the close-ups): [left, top, width, height]
   as fractions of the image width and height (0 to 1), tightly around the value itself (not its label). Leave out fields you didn't find.
+- valid_months: if a STAMP, sticker or separate note on the voucher limits how long it is valid (e.g. a red stamp
+  "VALID FOR 3 MONTHS"), give that number of months. Look carefully — such stamps are often red, slanted or faint and
+  can be anywhere, often near the date. The company's normal printed wording that is part of the form (e.g. "VALID FOR
+  6 MONTHS FROM ABOVE DATE" printed under the date line) does NOT count: if there is no extra stamp or note, give null.
 - unsure: names of the fields above you could read but are NOT sure about (e.g. a digit that could be 1 or 7), else [].
 - Use null for anything you cannot read. Do not invent values.`
 
@@ -160,6 +164,7 @@ How to read each field:
           date: nullable('string'),
           date_text: nullable('string'),
           date_hebrew: nullable('string'),
+          valid_months: nullable('number'),
           unsure: { type: 'array', items: { type: 'string' } },
           boxes: { type: 'object', properties: { voucher_number: box, account_number: box, amount: box, date: box } },
         },
@@ -209,6 +214,7 @@ How to read each field:
       date_text: str(f.date_text),
       date_hebrew: str(f.date_hebrew),
       boxes: cleanBoxes(f.boxes),
+      valid_months: Number(f.valid_months) > 0 && Number(f.valid_months) <= 24 ? Math.round(Number(f.valid_months)) : null,
       unsure: Array.isArray(f.unsure) ? f.unsure.map(String).slice(0, 10) : [],
       examples_used: examples.length,
       model: modelId,

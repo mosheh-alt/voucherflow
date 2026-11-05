@@ -316,6 +316,11 @@ export function lessonsFrom(corrections) {
     const missed = count((c) => c.field === f && c.kind === 'missed')
     if (missed >= 2) out.push(`the ${FIELD_LABELS[f]} was left blank ${missed} times although it was on the voucher — look for it carefully${f === 'date' ? ' (it may be handwritten or a Hebrew date)' : ''}`)
   }
+  const stamps = corrections.filter((c) => c.field === 'validity' && c.kind === 'missed')
+  if (stamps.length) {
+    const values = [...new Set(stamps.map((c) => c.right_value))].join(' or ')
+    out.push(`a stamp limiting the validity (e.g. "VALID FOR ${values} MONTHS") was missed ${stamps.length} time(s) — look for such stamps anywhere on the voucher, often red and near the date`)
+  }
   const mixups = corrections.filter((c) => c.kind === 'company')
   if (mixups.length >= 2) {
     const names = [...new Set(mixups.map((c) => c.wrong_value))].slice(0, 3).join(', ')
