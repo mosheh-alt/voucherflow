@@ -5,7 +5,7 @@ import { supabase } from './supabase.js'
 import { parseHebrewDate } from './hebrewDate.js'
 import { combineWithAi, suggestCompany } from './companyGuess.js'
 import { autoLevels } from './imageTools.js'
-import { checkReading, companyConfusions, companyKnowledge, exampleImages, learnedCrops, sampleImages } from './aiLearning.js'
+import { checkReading, companyConfusions, companyKnowledge, cropJpeg, padBox, exampleImages, learnedCrops, sampleImages } from './aiLearning.js'
 
 export async function aiEnabled() {
   const { data } = await supabase.from('app_settings').select('value').eq('key', 'ai_reading').maybeSingle()
@@ -63,7 +63,7 @@ function jpeg(bitmap, area, maxWidth, maxHeight, upscale = 1) {
 }
 
 // The version of the "read-voucher" function this app expects (see supabase/functions/read-voucher).
-export const AI_FUNCTION_VERSION = 7
+export const AI_FUNCTION_VERSION = 8
 
 // Checks the AI function: is it reachable, up to date, and is the AI key set?
 // Returns { ok, version, problem }.
@@ -169,6 +169,35 @@ export async function aiReadImage(blob, companies, { company = null, strong = fa
   const found = active.find((c) => c.name === data.company)
   return { ...data, date, company_id: found?.id ?? null, examples_used: data.examples_used ?? 0, read_at: new Date().toISOString() }
 }
+
+// Reads just one detail from the place on the voucher a person marked.
+//   field: voucher_number | account_number | amount | date;  box: [left, top, width, height] fractions
+// Returns the value (or null).
+export async function aiReadArea(voucher, field, box, company) {
+  const { data: blob, error } = await supabase.storage.from('vouchers').download(voucher.image_path)
+  if (error) throw error
+  const bitmap = await createImageBitmap(blob)
+  let image
+  try {
+    image = cropJpeg(bitmap, padBox(box, 0.25), 900)
+  } finally {
+    if (typeof bitmap.close === 'function') bitmap.close()
+  }
+  const knowledge = company ? await companyKnowledge(company.id) : null
+  const samples = knowledge ? (await sampleImages(knowledge, [voucher.id])).filter((x) => x.text.includes(FIELD_WORDS[field])) : []
+  const data = await callReader({
+    image, media_type: 'image/jpeg', crops: [], examples: [], samples,
+    facts: knowledge?.facts || '', companies: company ? [company.name] : [], company: company?.name || null,
+    hints: company?.ai_hints || null, model: 'strong', only_field: field,
+  })
+  if (field === 'date' && data.date_hebrew) {
+    const h = parseHebrewDate(data.date_hebrew)
+    return h ? { value: h.iso, date_text: data.date_text || data.date_hebrew } : null
+  }
+  const value = data[field]
+  return value === null || value === undefined || value === '' ? null : { value }
+}
+const FIELD_WORDS = { voucher_number: 'voucher number', account_number: 'account number', amount: 'amount', date: 'date' }
 
 // Works out which empty boxes the AI result can fill. Returns the database changes.
 export function aiPatch(voucher, ai) {

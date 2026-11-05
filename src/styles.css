@@ -315,3 +315,21 @@ ul.plain { list-style: none; padding-left: 0; }
   background: #f5f6f8; color: var(--muted); font-size: 12px; border: 1px dashed var(--line); border-radius: 4px; cursor: pointer; padding: 6px; }
 .img-missing { flex-direction: column; }
 .img-why { display: block; margin-top: 4px; font-size: 11px; color: var(--bad); word-break: break-word; }
+
+/* Showing the AI where a detail is on the picture */
+.mark-wrap { position: relative; display: inline-block; line-height: 0; }
+.mark-wrap.marking { cursor: crosshair; outline: 3px solid #f59e0b; border-radius: 4px; user-select: none; }
+.mark-wrap.marking img { cursor: crosshair; pointer-events: none; }
+.mark-box { position: absolute; border: 2px solid #2563eb; border-radius: 3px; pointer-events: none; line-height: 1.2; }
+.mark-box span { position: absolute; top: -17px; left: -2px; font-size: 10px; color: #fff; background: inherit; padding: 1px 4px; border-radius: 3px; white-space: nowrap; }
+.mark-box.mark-voucher_number { border-color: #2563eb; } .mark-box.mark-voucher_number span { background: #2563eb; }
+.mark-box.mark-account_number { border-color: #9333ea; } .mark-box.mark-account_number span { background: #9333ea; }
+.mark-box.mark-amount { border-color: #16a34a; } .mark-box.mark-amount span { background: #16a34a; }
+.mark-box.mark-date { border-color: #ea580c; } .mark-box.mark-date span { background: #ea580c; }
+.mark-box.drawing { background: rgba(245, 158, 11, .15); border-style: dashed; }
+.mark-help { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(17, 24, 39, .8); color: #fff; font-size: 12px; line-height: 1.4; padding: 4px 8px; }
+.mark-btn { border: 0; background: none; cursor: pointer; font-size: 13px; padding: 2px 4px; opacity: .45; vertical-align: middle; }
+.mark-btn:hover, .mark-btn.active { opacity: 1; }
+.mark-btn.active { background: #fff4d6; border-radius: 4px; }
+.mark-note { max-width: 420px; line-height: 1.3; margin-top: 4px; }
+.mark-wrap .img-missing { line-height: 1.3; }

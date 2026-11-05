@@ -76,14 +76,18 @@ export function forgetKnowledge() {
 }
 
 async function buildKnowledge(companyId) {
-  const { data, error } = await supabase
+  const cols = 'id, voucher_number, donor_account, amount, expiry_date, date_text, ai_data, thumb_path, image_path, validated_at, created_at'
+  const query = (extra) => supabase
     .from('vouchers')
-    .select('id, voucher_number, donor_account, amount, expiry_date, date_text, ai_data, thumb_path, image_path, validated_at, created_at')
+    .select(cols + extra)
     .eq('company_id', companyId)
     .in('status', VALIDATED)
     .is('deleted_at', null)
     .order('created_at', { ascending: false })
     .limit(SAMPLE)
+  // marked_boxes = places people pointed to on the picture (database update 16); works without it too.
+  let { data, error } = await query(', marked_boxes')
+  if (error) ({ data, error } = await query(''))
   if (error) throw error
   const rows = data || []
 
@@ -126,11 +130,21 @@ async function buildKnowledge(companyId) {
   // Where each detail is: the middle of the places where the AI found values that were confirmed right.
   const layout = {}
   const layoutCount = {}
+  const layoutSource = {}
   for (const field of Object.keys(FIELD_LABELS)) {
+    // Places a person pointed to are certain: one is enough, and they win over the AI's own.
+    const marked = rows.map((r) => r.marked_boxes?.[field]).filter(Boolean)
+    if (marked.length) {
+      layout[field] = [0, 1, 2, 3].map((i) => median(marked.map((b) => b[i])))
+      layoutCount[field] = marked.length
+      layoutSource[field] = 'marked'
+      continue
+    }
     const boxes = rows
       .filter((r) => r.ai_data?.boxes?.[field] && valueRight(field, r.ai_data, r))
       .map((r) => r.ai_data.boxes[field])
     layoutCount[field] = boxes.length
+    layoutSource[field] = 'ai'
     if (boxes.length >= 3) {
       const med = [0, 1, 2, 3].map((i) => median(boxes.map((b) => b[i])))
       const spread = median(boxes.map((b) => Math.abs(b[0] - med[0]) + Math.abs(b[1] - med[1])))
@@ -154,9 +168,20 @@ async function buildKnowledge(companyId) {
   if (lessons.length) facts.push('LESSONS from mistakes people corrected on these vouchers: ' + lessons.join('; '))
   const barcodeMistakes = corrections.filter((c) => c.source === 'barcode')
 
+  // Marked vouchers also make good close-up samples ("the account number here is 0123").
+  const markedSamples = []
+  for (const r of rows) {
+    for (const [field, box] of Object.entries(r.marked_boxes || {})) {
+      const value = field === 'account_number' ? r.donor_account : r[FIELD_VALUE[field]]
+      if (value != null && value !== '') markedSamples.push({ voucher_id: r.id, field, box, right_value: String(value), kind: 'marked' })
+    }
+  }
+
   return {
     layout,
     layoutCount,
+    layoutSource,
+    markedSamples,
     lessons,
     corrections: corrections.filter((c) => c.source === 'ai'),
     barcodeMistakes,
@@ -309,9 +334,10 @@ export function lessonsFrom(corrections) {
 // so the AI sees how this company's digits and handwriting really look.
 const sampleCache = new Map()
 export async function sampleImages(knowledge, excludeIds = [], max = 2) {
-  if (!knowledge?.corrections?.length) return []
+  const pool = [...(knowledge?.corrections || []), ...(knowledge?.markedSamples || [])]
+  if (!pool.length) return []
   const picks = []
-  for (const c of knowledge.corrections) {
+  for (const c of pool) {
     if (excludeIds.includes(c.voucher_id) || !c.right_value) continue
     if (!['voucher_number', 'account_number', 'date', 'amount'].includes(c.field)) continue
     if (picks.some((p) => p.voucher_id === c.voucher_id || (p.field === c.field && p.right_value === c.right_value))) continue
@@ -324,7 +350,10 @@ export async function sampleImages(knowledge, excludeIds = [], max = 2) {
       if (!image) return null
       const right = c.field === 'amount' ? `£${c.right_value}` : `"${c.right_value}"`
       const wrong = c.field === 'amount' ? `£${c.wrong_value}` : `"${c.wrong_value}"`
-      return { image, text: `the ${FIELD_LABELS[c.field]} here is ${right} (${c.kind === 'missed' || !c.wrong_value ? 'it was once missed — this is where to find it' : `it was once misread as ${wrong}`})` }
+      const why = c.kind === 'marked' ? 'a person marked exactly where it is'
+        : c.kind === 'missed' || !c.wrong_value ? 'it was once missed — this is where to find it'
+          : `it was once misread as ${wrong}`
+      return { image, text: `the ${FIELD_LABELS[c.field]} here is ${right} (${why})` }
     } catch {
       return null
     }
@@ -336,14 +365,15 @@ function sampleImage(c, layout) {
   const key = `${c.voucher_id}|${c.field}`
   if (!sampleCache.has(key)) {
     sampleCache.set(key, (async () => {
-      const { data: v } = await supabase.from('vouchers').select('image_path, ai_data').eq('id', c.voucher_id).maybeSingle()
-      const box = v?.ai_data?.boxes?.[c.field] || layout?.[c.field]
+      let { data: v, error: colErr } = await supabase.from('vouchers').select('image_path, ai_data, marked_boxes').eq('id', c.voucher_id).maybeSingle()
+      if (colErr) ({ data: v } = await supabase.from('vouchers').select('image_path, ai_data').eq('id', c.voucher_id).maybeSingle())
+      const box = c.box || v?.marked_boxes?.[c.field] || v?.ai_data?.boxes?.[c.field] || layout?.[c.field]
       if (!v?.image_path || !box) return null
       const { data, error } = await supabase.storage.from('vouchers').download(v.image_path)
       if (error) throw error
       const bitmap = await createImageBitmap(data)
       try {
-        return cropJpeg(bitmap, padBox(box, 0.6), 700)
+        return cropJpeg(bitmap, padBox(box, c.box || v?.marked_boxes?.[c.field] ? 0.25 : 0.6), 700)
       } finally {
         if (typeof bitmap.close === 'function') bitmap.close()
       }

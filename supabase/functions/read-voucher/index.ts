@@ -1,10 +1,10 @@
-// VoucherFlow — read-voucher (version 7: company mix-ups learned; health check; answers through a fixed form, so replies are always readable; learns from checked vouchers, their layout and the corrections people made)
+// VoucherFlow — read-voucher (version 8: reads one area a person marked; company mix-ups learned; health check; answers through a fixed form, so replies are always readable; learns from checked vouchers, their layout and the corrections people made)
 // Reads one charity voucher image with Claude and returns the details it can see.
 // The Claude API key is stored as the Supabase secret ANTHROPIC_API_KEY and never leaves this function.
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
 // The app checks this number and warns when this function needs updating.
-const VERSION = 7
+const VERSION = 8
 
 const MODELS: Record<string, string> = {
   fast: 'claude-haiku-5-5',     // first read: quick and very cheap
@@ -78,8 +78,14 @@ Deno.serve(async (req) => {
       : `The company that issued it is one of: ${JSON.stringify(names)}` +
         (facts ? `\nMix-ups people corrected before (avoid them): ${facts}` : '')
 
+    // A person marked where one detail is: read only that detail from the close-up.
+    const FIELD_NAMES: Record<string, string> = { voucher_number: 'voucher number', account_number: 'donor account number', amount: 'amount', date: 'date' }
+    const onlyField = typeof body.only_field === 'string' && FIELD_NAMES[body.only_field] ? body.only_field : null
+    const focus = onlyField
+      ? `\nIMPORTANT: the image is a close-up of the place on the voucher where a person says the ${FIELD_NAMES[onlyField]} is. Read ONLY the ${FIELD_NAMES[onlyField]} from it (fill "${onlyField}"); give null for every other field.`
+      : ''
     const instructions = `This is a scanned UK charity voucher (like a cheque) issued by a voucher company to a donor.
-${about}
+${about}${focus}
 ${examples.length ? `You were first shown ${examples.length} example voucher(s) from the same company with their correct readings, checked by a person. Use them to learn where each detail is and how it looks (e.g. handwriting style, number length) — but read THIS voucher's own values; never copy values from the examples.` : ''}
 ${samples.length ? `You were also shown close-ups from checked vouchers of the same company with what they really say — study how this company's digits and handwriting look, so you read the same shapes correctly here.` : ''}
 ${crops.length ? `After the full voucher you also get zoomed close-ups of parts of it (labelled) — use them to read small print.` : ''}
@@ -118,7 +124,7 @@ How to read each field:
       content.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: sm.image } })
     }
     content.push(
-      { type: 'text', text: examples.length || samples.length ? 'Now the voucher to read — full voucher:' : 'Full voucher:' },
+      { type: 'text', text: onlyField ? 'The marked area:' : examples.length || samples.length ? 'Now the voucher to read — full voucher:' : 'Full voucher:' },
       { type: 'image', source: { type: 'base64', media_type: media_type || 'image/jpeg', data: image } },
     )
     for (const c of crops) {

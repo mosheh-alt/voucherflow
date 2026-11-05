@@ -53,7 +53,7 @@ export default function LearnedPanel({ companyId }) {
             {fields.map((f) => (
               <li key={f}>
                 <span className="dot" style={{ background: COLOURS[f] }} /> {FIELD_LABELS[f]}:{' '}
-                {k.layout[f] ? <strong>learned</strong> : <span className="muted">learning ({k.layoutCount[f] || 0} of 3 readings needed)</span>}
+                {k.layout[f] ? <strong>learned{k.layoutSource?.[f] === 'marked' ? ` (marked by people on ${k.layoutCount[f]} voucher${k.layoutCount[f] === 1 ? '' : 's'})` : ''}</strong> : <span className="muted">learning ({k.layoutCount[f] || 0} of 3 readings needed — or mark it once with 📍 on a voucher)</span>}
               </li>
             ))}
           </ul>

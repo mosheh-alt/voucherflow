@@ -8,10 +8,15 @@ import { parseHebrewDate } from '../lib/hebrewDate.js'
 import { useAuth } from '../auth.jsx'
 import { StatusPill } from '../components.jsx'
 import { duplicateFields, findDuplicate } from '../lib/duplicates.js'
-import { PROBLEM_LABELS } from '../lib/aiLearning.js'
+import { PROBLEM_LABELS, forgetKnowledge } from '../lib/aiLearning.js'
+import { aiReadArea } from '../lib/ai.js'
 import { recordCorrections } from '../lib/corrections.js'
 
 const EDITABLE = ['pending', 'valid', 'post_dated', 'not_valid']
+
+// Details a person can point to on the picture, and the box each one fills.
+const MARK_COLUMN = { voucher_number: 'voucher_number', account_number: 'donor_account', amount: 'amount', date: 'expiry_date' }
+const MARK_LABEL = { voucher_number: 'voucher no.', account_number: 'account no.', amount: 'amount', date: 'date' }
 
 function draftFrom(v) {
   return {
@@ -58,8 +63,86 @@ const VoucherRow = forwardRef(function VoucherRow(
   const [hebrewText, setHebrewText] = useState('')
   const [hebrewProblem, setHebrewProblem] = useState(false)
   const editable = canEdit && EDITABLE.includes(v.status)
+
+  // ---- Showing the AI where a detail is: the person drags a box (or clicks) on the picture. ----
+  const [marking, setMarking] = useState(null) // field being marked: voucher_number | account_number | amount | date
+  const [drag, setDrag] = useState(null) // { x0, y0, x1, y1 } as fractions while dragging
+  const [markNote, setMarkNote] = useState(null)
+  const picRef = useRef(null)
+  const marks = v.marked_boxes || {}
+
+  useEffect(() => {
+    if (!marking) return undefined
+    const esc = (e) => { if (e.key === 'Escape') { setMarking(null); setDrag(null) } }
+    window.addEventListener('keydown', esc)
+    return () => window.removeEventListener('keydown', esc)
+  }, [marking])
+
+  function fractionAt(e) {
+    const img = picRef.current?.querySelector('img')
+    if (!img) return null
+    const r = img.getBoundingClientRect()
+    return { x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)) }
+  }
+  function markDown(e) {
+    if (!marking) return
+    e.preventDefault()
+    const p = fractionAt(e)
+    if (p) setDrag({ x0: p.x, y0: p.y, x1: p.x, y1: p.y })
+  }
+  function markMove(e) {
+    if (!marking || !drag) return
+    const p = fractionAt(e)
+    if (p) setDrag((g) => ({ ...g, x1: p.x, y1: p.y }))
+  }
+  async function markUp() {
+    if (!marking || !drag) return
+    const field = marking
+    let box = [Math.min(drag.x0, drag.x1), Math.min(drag.y0, drag.y1), Math.abs(drag.x1 - drag.x0), Math.abs(drag.y1 - drag.y0)]
+    if (box[2] < 0.015 || box[3] < 0.01) {
+      // Just a click: a box around the point.
+      box = [Math.max(0, drag.x0 - 0.1), Math.max(0, drag.y0 - 0.04), 0.2, 0.08]
+      box[2] = Math.min(box[2], 1 - box[0]); box[3] = Math.min(box[3], 1 - box[1])
+    }
+    box = box.map((n) => Math.round(n * 1000) / 1000)
+    setDrag(null)
+    setMarking(null)
+    try {
+      await update({ marked_boxes: { ...marks, [field]: box } })
+      forgetKnowledge() // the next reading uses it straight away
+    } catch (err) {
+      setProblem(/marked_boxes/.test(err.message || '') ? 'To save marked places, run database update 016 in Supabase first.' : err.message)
+      return
+    }
+    const column = MARK_COLUMN[field]
+    const label = MARK_LABEL[field]
+    const company = companyById[d.company_id]
+    if (d[column] !== '' && d[column] != null) {
+      setMarkNote(`Saved — the AI will look for the ${label} here on ${company?.name || 'this company'}'s vouchers.`)
+      return
+    }
+    // The box is empty: read just that spot.
+    setMarkNote(`Reading the ${label} from the marked area…`)
+    try {
+      const r = await aiReadArea(v, field, box, company)
+      if (!r) { setMarkNote(`Saved the place, but couldn't read the ${label} there — please type it.`); return }
+      const value = field === 'amount' ? Number(r.value) : String(r.value).replace(/\s+/g, '')
+      setD((x) => ({ ...x, [column]: value, ...(r.date_text ? { date_text: r.date_text } : {}) }))
+      await update({ [column]: value, ...(r.date_text ? { date_text: r.date_text } : {}) })
+      setMarkNote(`Read from the marked area: ${field === 'amount' ? `£${value}` : value} — please check it.`)
+    } catch (err) {
+      setMarkNote(`Saved the place, but reading failed (${err.message}) — please type it.`)
+    }
+  }
+  const markButton = (field) => editable && (
+    <button type="button" className={`mark-btn ${marking === field ? 'active' : ''}`} title={`Show on the picture where the ${MARK_LABEL[field]} is — teaches the AI`}
+      onClick={() => { setMarkNote(null); setMarking(marking === field ? null : field) }}>
+      📍{marks[field] ? '✓' : ''}
+    </button>
+  )
+
   // Vouchers still to do are shown large; once validated they shrink back (click to review).
-  const pictureSize = v.status === 'pending'
+  const pictureSize = marking ? 'thumb-big thumb-huge' : v.status === 'pending'
     ? (expanded ? 'thumb-big thumb-huge' : 'thumb-big')
     : (expanded ? 'thumb-big' : '')
 
@@ -224,16 +307,33 @@ const VoucherRow = forwardRef(function VoucherRow(
       <td><input type="checkbox" checked={Boolean(selected)} onChange={() => onSelect(v.id)} aria-label="Select voucher" /></td>
       <td>
         {/* Small copy normally; the full-size picture only when enlarged. */}
-        <StoredImage className={`thumb zoomable ${pictureSize}`}
-          path={expanded && v.thumb_path ? v.image_path : (v.thumb_path || v.image_path)}
-          fallback={v.image_path}
-          title={expanded ? 'Click to make smaller' : 'Click to enlarge'} onClick={() => onToggleImage(v.id)} />
+        <div ref={picRef} className={`mark-wrap ${marking ? 'marking' : ''}`}
+          onMouseDown={markDown} onMouseMove={markMove} onMouseUp={markUp} onMouseLeave={() => drag && markUp()}>
+          <StoredImage className={`thumb zoomable ${pictureSize}`} draggable={false}
+            path={(expanded || marking) && v.thumb_path ? v.image_path : (v.thumb_path || v.image_path)}
+            fallback={v.image_path}
+            title={marking ? '' : expanded ? 'Click to make smaller' : 'Click to enlarge'} onClick={marking ? undefined : () => onToggleImage(v.id)} />
+          {(marking || expanded) && Object.entries(marks).map(([f, b]) => (
+            <div key={f} className={`mark-box mark-${f}`} style={{ left: `${b[0] * 100}%`, top: `${b[1] * 100}%`, width: `${b[2] * 100}%`, height: `${b[3] * 100}%` }}>
+              <span>{MARK_LABEL[f]}</span>
+            </div>
+          ))}
+          {drag && (
+            <div className={`mark-box drawing mark-${marking}`} style={{
+              left: `${Math.min(drag.x0, drag.x1) * 100}%`, top: `${Math.min(drag.y0, drag.y1) * 100}%`,
+              width: `${Math.abs(drag.x1 - drag.x0) * 100}%`, height: `${Math.abs(drag.y1 - drag.y0) * 100}%`,
+            }} />
+          )}
+          {marking && <div className="mark-help">Drag a box around the <strong>{MARK_LABEL[marking]}</strong> (or just click on it) · Esc to cancel</div>}
+        </div>
+        {markNote && <div className="small muted mark-note">{markNote}</div>}
       </td>
       {showBatch && <td className="mono"><strong>{v.collector_reference}</strong></td>}
       <td>
         {editable
           ? <input ref={numberRef} className={"cell mono" + aiCls("voucher_number")} value={d.voucher_number} onChange={(e) => set('voucher_number', e.target.value)} onBlur={saveField} onKeyDown={onKey} placeholder="Voucher no." />
           : <span className="mono">{v.voucher_number || '—'}</span>}
+        {markButton('voucher_number')}
       </td>
       <td>
         {editable ? (
@@ -245,6 +345,7 @@ const VoucherRow = forwardRef(function VoucherRow(
             )}
           </>
         ) : (v.donor_account || '—')}
+        {markButton('account_number')}
       </td>
       <td>
         {editable ? (
@@ -260,6 +361,7 @@ const VoucherRow = forwardRef(function VoucherRow(
         {editable
           ? <input ref={amountRef} className={"cell num" + aiCls("amount")} type="number" step="0.01" min="0" inputMode="decimal" value={d.amount} onChange={(e) => set('amount', e.target.value)} onBlur={saveField} onKeyDown={onKey} placeholder="£" />
           : (v.amount != null ? `£${Number(v.amount).toFixed(2)}` : '—')}
+        {markButton('amount')}
       </td>
       <td>
         {editable
@@ -269,6 +371,7 @@ const VoucherRow = forwardRef(function VoucherRow(
                 <input className={"cell" + aiCls("expiry_date")} type="date" value={d.expiry_date} onChange={(e) => set('expiry_date', e.target.value)} onBlur={saveField} onKeyDown={onKey} />
                 <button type="button" className="btn heb-btn" title="Type a Hebrew date" onClick={() => setHebrewOpen(!hebrewOpen)}>עב</button>
               </div>
+              {markButton('date')}
               {hebrewOpen && (
                 <input className={`cell heb-input ${hebrewProblem ? 'bad' : ''}`} dir="auto" autoFocus value={hebrewText}
                   placeholder='e.g. ט"ו חשון תשפ"ז / 15 Cheshvan 5787'
