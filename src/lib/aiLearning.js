@@ -287,6 +287,15 @@ export function lessonsFrom(corrections) {
     const places = corrections.filter((c) => c.field === f && c.kind === 'wrong_place')
     if (places.length >= 2) out.push(`the ${label} was mixed up with another box ${places.length} times (${places[0].detail}) — take it only from its own place`)
   }
+  for (const f of Object.keys(FIELD_LABELS)) {
+    const missed = count((c) => c.field === f && c.kind === 'missed')
+    if (missed >= 2) out.push(`the ${FIELD_LABELS[f]} was left blank ${missed} times although it was on the voucher — look for it carefully${f === 'date' ? ' (it may be handwritten or a Hebrew date)' : ''}`)
+  }
+  const mixups = corrections.filter((c) => c.kind === 'company')
+  if (mixups.length >= 2) {
+    const names = [...new Set(mixups.map((c) => c.wrong_value))].slice(0, 3).join(', ')
+    out.push(`these vouchers were mistaken for ${names} ${mixups.length} times — check the company name and logo`)
+  }
   const dm = count((c) => c.kind === 'day_month')
   if (dm >= 2) out.push(`day and month were swapped ${dm} times — dates are written day/month/year`)
   const amounts = corrections.filter((c) => c.field === 'amount' && c.kind === 'different')
@@ -315,7 +324,7 @@ export async function sampleImages(knowledge, excludeIds = [], max = 2) {
       if (!image) return null
       const right = c.field === 'amount' ? `£${c.right_value}` : `"${c.right_value}"`
       const wrong = c.field === 'amount' ? `£${c.wrong_value}` : `"${c.wrong_value}"`
-      return { image, text: `the ${FIELD_LABELS[c.field]} here is ${right} (it was once misread as ${wrong})` }
+      return { image, text: `the ${FIELD_LABELS[c.field]} here is ${right} (${c.kind === 'missed' || !c.wrong_value ? 'it was once missed — this is where to find it' : `it was once misread as ${wrong}`})` }
     } catch {
       return null
     }
@@ -379,4 +388,25 @@ export function learnedCrops(bitmap, knowledge) {
     out.push({ label: `where the ${FIELD_LABELS[field]} usually is on this company's vouchers`, image: cropJpeg(bitmap, padBox(box, 0.6), 800) })
   }
   return out
+}
+
+// Which companies' vouchers get mistaken for which (from corrections), for reading a voucher
+// whose company isn't known yet. Cached for 10 minutes.
+let confusionCache = null
+export function companyConfusions() {
+  if (confusionCache && Date.now() - confusionCache.at < CACHE_MS) return confusionCache.promise
+  const promise = (async () => {
+    const { data } = await supabase.from('ai_corrections').select('wrong_value, right_value')
+      .eq('field', 'company').eq('source', 'ai').order('created_at', { ascending: false }).limit(500)
+    const counts = new Map()
+    for (const c of data || []) {
+      const k = `${c.right_value}|${c.wrong_value}`
+      counts.set(k, (counts.get(k) || 0) + 1)
+    }
+    return [...counts.entries()].filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1]).slice(0, 8)
+      .map(([k, n]) => { const [right, wrong] = k.split('|'); return `${right} vouchers were read as ${wrong} ${n} times` })
+      .join('; ')
+  })().catch(() => '')
+  confusionCache = { at: Date.now(), promise }
+  return promise
 }

@@ -1,10 +1,10 @@
-// VoucherFlow — read-voucher (version 6: health check; answers through a fixed form, so replies are always readable; learns from checked vouchers, their layout and the corrections people made)
+// VoucherFlow — read-voucher (version 7: company mix-ups learned; health check; answers through a fixed form, so replies are always readable; learns from checked vouchers, their layout and the corrections people made)
 // Reads one charity voucher image with Claude and returns the details it can see.
 // The Claude API key is stored as the Supabase secret ANTHROPIC_API_KEY and never leaves this function.
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
 // The app checks this number and warns when this function needs updating.
-const VERSION = 6
+const VERSION = 7
 
 const MODELS: Record<string, string> = {
   fast: 'claude-haiku-5-5',     // first read: quick and very cheap
@@ -75,7 +75,8 @@ Deno.serve(async (req) => {
     const about = company
       ? `This voucher is from ${company}.${hints ? `\nLayout notes for ${company} vouchers: ${hints}` : ''}` +
         (facts ? `\nWhat we know from ${company} vouchers already checked by people: ${facts}` : '')
-      : `The company that issued it is one of: ${JSON.stringify(names)}`
+      : `The company that issued it is one of: ${JSON.stringify(names)}` +
+        (facts ? `\nMix-ups people corrected before (avoid them): ${facts}` : '')
 
     const instructions = `This is a scanned UK charity voucher (like a cheque) issued by a voucher company to a donor.
 ${about}

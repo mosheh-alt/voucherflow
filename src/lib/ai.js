@@ -5,7 +5,7 @@ import { supabase } from './supabase.js'
 import { parseHebrewDate } from './hebrewDate.js'
 import { combineWithAi, suggestCompany } from './companyGuess.js'
 import { autoLevels } from './imageTools.js'
-import { checkReading, companyKnowledge, exampleImages, learnedCrops, sampleImages } from './aiLearning.js'
+import { checkReading, companyConfusions, companyKnowledge, exampleImages, learnedCrops, sampleImages } from './aiLearning.js'
 
 export async function aiEnabled() {
   const { data } = await supabase.from('app_settings').select('value').eq('key', 'ai_reading').maybeSingle()
@@ -63,7 +63,7 @@ function jpeg(bitmap, area, maxWidth, maxHeight, upscale = 1) {
 }
 
 // The version of the "read-voucher" function this app expects (see supabase/functions/read-voucher).
-export const AI_FUNCTION_VERSION = 6
+export const AI_FUNCTION_VERSION = 7
 
 // Checks the AI function: is it reachable, up to date, and is the AI key set?
 // Returns { ok, version, problem }.
@@ -148,7 +148,8 @@ export async function aiReadImage(blob, companies, { company = null, strong = fa
   const body = {
     examples,
     samples,
-    facts: company && knowledge ? knowledge.facts : '',
+    // Company known: what was learned about it. Company unknown: which companies get mixed up.
+    facts: company ? (knowledge ? knowledge.facts : '') : await companyConfusions(companies),
     image,
     media_type: 'image/jpeg',
     crops,

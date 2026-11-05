@@ -55,7 +55,8 @@ export function classify(field, wrong, right, finalValues = {}) {
 // Compares what the barcode and the AI gave with what the person confirmed, and saves the differences.
 //   voucher: the voucher as it was before validating (with barcode_raw, ai_data)
 //   final: the confirmed values { voucher_number, donor_account, amount, expiry_date, company_id }
-export async function recordCorrections(voucher, final, companies, userId) {
+//   opts.accountFromSuggestion: the account came from the nearest-voucher suggestion, not from the voucher itself
+export async function recordCorrections(voucher, final, companies, userId, opts = {}) {
   try {
     const companyId = final.company_id || voucher.company_id
     if (!companyId) return
@@ -72,9 +73,26 @@ export async function recordCorrections(voucher, final, companies, userId) {
         if (source === 'barcode' && field !== 'voucher_number' && values[keyOf(field)] == null) continue
         const wrong = values[keyOf(field)]
         const right = final[FIELDS[field][0]]
+        // The AI left it blank but the person found it on the voucher: it missed it.
+        if (source === 'ai' && text(wrong) === null && text(right) !== null && !values.error &&
+            !(field === 'account_number' && opts.accountFromSuggestion)) {
+          rows.push({ voucher_id: voucher.id, company_id: companyId, field, source, wrong_value: null, right_value: text(right), kind: 'missed', detail: null, model, created_by: userId })
+          continue
+        }
         if (text(wrong) === null || sameValue(field, wrong, right)) continue
         const { kind, detail } = classify(field, wrong, right, final)
         rows.push({ voucher_id: voucher.id, company_id: companyId, field, source, wrong_value: text(wrong), right_value: text(right), kind, detail, model, created_by: userId })
+      }
+    }
+    // The company: what the AI or the number history said, against what the person confirmed.
+    const nameOf = (id) => companies.find((c) => c.id === id)?.name || id
+    const guesses = []
+    if (voucher.ai_data?.company_id) guesses.push(['ai', voucher.ai_data.company_id])
+    const hint = voucher.company_hint
+    if (hint?.history?.company_id && ['history', 'conflict', 'agree', 'chosen'].includes(hint.state)) guesses.push(['history', hint.history.company_id])
+    for (const [source, guess] of guesses) {
+      if (guess && guess !== companyId) {
+        rows.push({ voucher_id: voucher.id, company_id: companyId, field: 'company', source, wrong_value: nameOf(guess), right_value: nameOf(companyId), kind: 'company', detail: null, model: null, created_by: userId })
       }
     }
     if (!rows.length) return

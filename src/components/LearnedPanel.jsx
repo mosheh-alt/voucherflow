@@ -5,7 +5,7 @@ import { FIELD_LABELS, companyKnowledge } from '../lib/aiLearning.js'
 const COLOURS = { voucher_number: '#2563eb', account_number: '#9333ea', amount: '#16a34a', date: '#ea580c' }
 const KINDS = {
   digits: 'misread character', leading_zero: 'leading zero', missing_digit: 'missed character', extra_digit: 'extra character',
-  wrong_place: 'wrong box', day_month: 'day/month swapped', not_on_voucher: 'not on voucher', different: 'different value',
+  wrong_place: 'wrong box', day_month: 'day/month swapped', not_on_voucher: 'not on voucher', different: 'different value', missed: 'left blank (missed)', company: 'wrong company',
 }
 
 // What the AI has learned about one company's vouchers: where each detail is, the patterns,
@@ -78,8 +78,8 @@ export default function LearnedPanel({ companyId }) {
             <tbody>
               {k.corrections.slice(0, 20).map((c, i) => (
                 <tr key={i}>
-                  <td>{FIELD_LABELS[c.field]}</td>
-                  <td className="mono bad-text">{c.wrong_value}</td>
+                  <td>{FIELD_LABELS[c.field] || c.field}</td>
+                  <td className="mono bad-text">{c.wrong_value ?? <span className="muted">(blank)</span>}</td>
                   <td className="mono">{c.right_value ?? <span className="muted">(none)</span>}</td>
                   <td>{KINDS[c.kind] || c.kind}{c.detail ? ` · ${c.detail}` : ''}</td>
                 </tr>

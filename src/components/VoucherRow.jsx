@@ -206,7 +206,7 @@ const VoucherRow = forwardRef(function VoucherRow(
         validated_at: new Date().toISOString(),
       })
       // Teach the AI: what did the barcode / AI give that the person changed?
-      recordCorrections(v, values, companies, session.user.id)
+      recordCorrections(v, values, companies, session.user.id, { accountFromSuggestion: Boolean(suggested && values.donor_account === suggested.account) })
       onNext(v.id)
     } catch (err) {
       setProblem(err.message)
