@@ -12,6 +12,7 @@ const LIFE_SECONDS = 24 * 3600
 const RENEW_BEFORE_MS = 2 * 3600 * 1000 // renew when less than 2 hours are left
 
 const cache = new Map() // path → { url, expires }
+const errors = new Map() // path → why the last link request failed
 const listeners = new Map() // path → Set of functions(url)
 const waiting = new Map() // path → [resolve, …]
 let queue = new Set()
@@ -20,6 +21,10 @@ let timer = null
 export function cachedUrl(path) {
   const c = path && cache.get(path)
   return c && c.expires - Date.now() > RENEW_BEFORE_MS ? c.url : null
+}
+
+export function pictureError(path) {
+  return errors.get(path) || null
 }
 
 // Gets a link for a picture (from memory if still good). `fresh` forces a new link.
@@ -44,16 +49,21 @@ async function flush() {
   for (let i = 0; i < paths.length; i += 100) {
     const part = paths.slice(i, i + 100)
     let data = null
+    let problem = null
     try {
       const res = await supabase.storage.from('vouchers').createSignedUrls(part, LIFE_SECONDS)
       data = res.data
-    } catch {
-      /* offline or server busy — the pictures retry by themselves */
+      if (res.error) problem = res.error.message || String(res.error)
+    } catch (e) {
+      problem = e.message || String(e) // offline or server busy — the pictures retry by themselves
     }
+    const itemErrors = new Map((data || []).filter((d) => d.error).map((d) => [d.path, d.error]))
     const got = new Map((data || []).filter((d) => d.signedUrl).map((d) => [d.path, d.signedUrl]))
     for (const p of part) {
       const url = got.get(p) || null
+      if (!url) errors.set(p, itemErrors.get(p) || problem || 'No link returned')
       if (url) {
+        errors.delete(p)
         cache.set(p, { url, expires: Date.now() + LIFE_SECONDS * 1000 })
         for (const fn of listeners.get(p) || []) fn(url)
       }

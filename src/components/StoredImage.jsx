@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { cachedUrl, pictureUrl, watchPicture } from '../lib/imageUrls.js'
+import { cachedUrl, pictureError, pictureUrl, watchPicture } from '../lib/imageUrls.js'
 
 const RETRY_AFTER = [0, 2000, 8000, 30000]
 
 // A voucher picture from storage that keeps working however long the page stays open:
 // its link is renewed before it expires, and if it ever fails to load it fetches a new one
 // and tries again (then keeps trying whenever the computer wakes or comes back online).
-export default function StoredImage({ path, className = '', alt = 'Voucher', title, onClick, ...rest }) {
+// fallback: another picture to show if this one can't be loaded (e.g. the original when the small copy fails)
+export default function StoredImage({ path, fallback, className = '', alt = 'Voucher', title, onClick, ...rest }) {
   const [url, setUrl] = useState(() => cachedUrl(path))
   const [failed, setFailed] = useState(false)
   const tries = useRef(0)
@@ -34,11 +35,15 @@ export default function StoredImage({ path, className = '', alt = 'Voucher', tit
   }
 
   if (!path) return <div className={className} />
+  if (failed && fallback && fallback !== path) {
+    return <StoredImage path={fallback} className={className} alt={alt} title={title} onClick={onClick} {...rest} />
+  }
   if (!url || failed) {
+    const why = failed ? (pictureError(path) || (url ? 'The picture link did not open' : null)) : null
     return (
       <div className={`${className} img-missing`} title="Click to load the picture again"
         onClick={(e) => { e.stopPropagation(); tries.current = 0; setFailed(false); retry() }}>
-        {failed ? '↻ Picture didn’t load — click to retry' : 'Loading…'}
+        {failed ? <>↻ Picture didn’t load — click to retry{why && <span className="img-why">{why}</span>}</> : 'Loading…'}
       </div>
     )
   }

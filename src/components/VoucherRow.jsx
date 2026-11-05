@@ -226,6 +226,7 @@ const VoucherRow = forwardRef(function VoucherRow(
         {/* Small copy normally; the full-size picture only when enlarged. */}
         <StoredImage className={`thumb zoomable ${pictureSize}`}
           path={expanded && v.thumb_path ? v.image_path : (v.thumb_path || v.image_path)}
+          fallback={v.image_path}
           title={expanded ? 'Click to make smaller' : 'Click to enlarge'} onClick={() => onToggleImage(v.id)} />
       </td>
       {showBatch && <td className="mono"><strong>{v.collector_reference}</strong></td>}
