@@ -29,6 +29,10 @@ export default function BatchDetail() {
   const [companiesLoaded, setCompaniesLoaded] = useState(false)
   const [thumbs, setThumbs] = useState({}) // voucher id → tiny preview
   const [previewsLoaded, setPreviewsLoaded] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(null) // { done, total, current } while the upload queue runs
+  const uploadQueue = useRef([])
+  const uploading = useRef(false)
+  const aiChain = useRef(Promise.resolve())
   const previewsFetched = useRef(null)
   const [error, setError] = useState(null)
   const [progress, setProgress] = useState(null) // { done, total, current }
@@ -188,23 +192,33 @@ export default function BatchDetail() {
     return s
   }, [vouchers])
 
-  async function processFiles(fileList) {
+  // Uploads work as a queue: more images can be added at any time (even while earlier ones are
+  // still uploading or being read by the AI) — they simply join the end of the queue.
+  function processFiles(fileList) {
     const files = Array.from(fileList).filter((f) => ACCEPTED.includes(f.type))
     const skipped = fileList.length - files.length
     if (!files.length) {
       setError('Please choose image files (JPG or PNG).')
       return
     }
-    setError(skipped ? `${skipped} file(s) skipped — only JPG and PNG images can be uploaded.` : null)
-    setProgress({ done: 0, total: files.length, current: '' })
+    if (skipped) setError(`${skipped} file(s) skipped — only JPG and PNG images can be uploaded.`)
+    uploadQueue.current.push(...files)
+    setUploadProgress((p) => (p ? { ...p, total: p.total + files.length } : p))
+    if (!uploading.current) runUploads()
+  }
+
+  async function runUploads() {
+    uploading.current = true
     // Voucher numbers met so far in this upload: number → [{ id, company_id }]
     const seen = new Map()
     const failures = []
-    const aiItems = []
+    let aiItems = []
+    let done = 0
+    setUploadProgress({ done: 0, total: uploadQueue.current.length, current: '' })
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i]
-      setProgress({ done: i, total: files.length, current: file.name })
+    while (uploadQueue.current.length) {
+      const file = uploadQueue.current.shift()
+      setUploadProgress({ done, total: done + 1 + uploadQueue.current.length, current: file.name })
       try {
         const barcode = await readBarcode(file)
         const { company, fields, prefilled } = interpretBarcode(barcode, companies.filter((c) => c.active !== false))
@@ -252,26 +266,33 @@ export default function BatchDetail() {
         }
         if (insErr) throw insErr
         aiItems.push({ voucher: inserted, blob: file })
+        setVouchers((list) => (list.some((x) => x.id === inserted.id) ? list : [...list, inserted])) // shows straight away
         createPreview(inserted.id, batch.id, file).then((p) => p && setThumbs((m) => ({ ...m, [inserted.id]: p })))
         if (inserted.voucher_number) seen.set(inserted.voucher_number, [...(seen.get(inserted.voucher_number) || []), { id: inserted.id, company_id: inserted.company_id }])
       } catch (e) {
         failures.push(`${file.name}: ${e.message || e}`)
       }
+      done++
+      // The AI starts on uploaded vouchers in groups of 20, while the rest keep uploading.
+      if (aiItems.length >= 20) { queueAi(aiItems); aiItems = [] }
     }
-    setProgress(null)
-    // Then the AI fills what the barcode couldn't (only when switched on).
-    let aiNote = ''
-    const aiNow = aiOn || (await aiEnabled().catch(() => false))
-    if (aiNow && aiItems.length) {
-      await load()
-      const { updated, failures: aiFail } = await runAi(aiItems)
-      aiNote = `AI read ${updated} of ${aiItems.length} voucher(s).` + (aiFail.length ? ` ${aiFail.length} failed — first error: ${aiFail[0]}` : '')
-    }
-    const msgs = []
-    if (failures.length) msgs.push(`${failures.length} file(s) failed:\n${failures.join('\n')}`)
-    if (aiNote) msgs.push(aiNote)
-    if (msgs.length) setError(msgs.join('\n'))
+    queueAi(aiItems)
+    uploading.current = false
+    setUploadProgress(null)
+    if (failures.length) setError(`${failures.length} file(s) failed:\n${failures.join('\n')}`)
     await load()
+  }
+
+  // AI readings run one group after another (never two at once), alongside the uploads.
+  function queueAi(items) {
+    if (!items.length) return
+    aiChain.current = aiChain.current.then(async () => {
+      const aiNow = aiOn || (await aiEnabled().catch(() => false))
+      if (!aiNow) return
+      const { updated, failures: aiFail } = await runAi(items)
+      if (aiFail.length) setError(`AI read ${updated} of ${items.length} voucher(s). ${aiFail.length} failed — first error: ${aiFail[0]}`)
+      await load()
+    }).catch(() => {})
   }
 
   // Re-extracts barcode data for pending vouchers: 'missing' = only those without barcode or company,
@@ -471,11 +492,11 @@ export default function BatchDetail() {
 
       {canUpload && (
         <div
-          className={`dropzone ${dragging ? 'over' : ''} ${progress ? 'busy' : ''}`}
+          className={`dropzone ${dragging ? 'over' : ''}`}
           onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
           onDragLeave={() => setDragging(false)}
-          onDrop={(e) => { e.preventDefault(); setDragging(false); if (!progress) processFiles(e.dataTransfer.files) }}
-          onClick={() => !progress && fileInput.current?.click()}
+          onDrop={(e) => { e.preventDefault(); setDragging(false); processFiles(e.dataTransfer.files) }}
+          onClick={() => fileInput.current?.click()}
         >
           <input
             ref={fileInput}
@@ -485,22 +506,24 @@ export default function BatchDetail() {
             hidden
             onChange={(e) => { processFiles(e.target.files); e.target.value = '' }}
           />
-          {progress ? (
+          {uploadProgress ? (
             <>
-              <div><strong>{progress.label || 'Processing'} {progress.done + 1} of {progress.total}</strong> — reading barcodes</div>
-              <div className="bar"><div style={{ width: `${(progress.done / progress.total) * 100}%` }} /></div>
-              <div className="muted small">{progress.current}</div>
+              <div><strong>Uploading {Math.min(uploadProgress.done + 1, uploadProgress.total)} of {uploadProgress.total}</strong> — reading barcodes</div>
+              <div className="bar"><div style={{ width: `${(uploadProgress.done / Math.max(1, uploadProgress.total)) * 100}%` }} /></div>
+              <div className="muted small">{uploadProgress.current}</div>
+              <button type="button" className="btn" style={{ marginTop: 8 }}>+ Add more images</button>
+              <div className="muted small">You can add more at any time — they join the queue. You can also start checking the vouchers already in.</div>
             </>
           ) : (
             <>
               <button type="button" className="btn primary">Upload voucher images from PC</button>
-              <div className="muted small" style={{ marginTop: 8 }}>or drag and drop them here · JPG or PNG, one image per voucher · you can select hundreds at once</div>
+              <div className="muted small" style={{ marginTop: 8 }}>or drag and drop them here · JPG or PNG, one image per voucher · you can select hundreds at once, and add more while it's working</div>
             </>
           )}
         </div>
       )}
 
-      {progress && !canUpload && (
+      {progress && (
         <div className="card progress-card">
           <strong>{progress.label || 'Processing'} {progress.done + 1} of {progress.total}</strong>
           <div className="bar"><div style={{ width: `${(progress.done / progress.total) * 100}%` }} /></div>
