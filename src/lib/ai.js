@@ -63,7 +63,7 @@ function jpeg(bitmap, area, maxWidth, maxHeight, upscale = 1) {
 }
 
 // The version of the "read-voucher" function this app expects (see supabase/functions/read-voucher).
-export const AI_FUNCTION_VERSION = 9
+export const AI_FUNCTION_VERSION = 10
 
 // Checks the AI function: is it reachable, up to date, and is the AI key set?
 // Returns { ok, version, problem }.

@@ -1,10 +1,10 @@
-// VoucherFlow — read-voucher (version 9: short Hebrew-date years kept as written; reads one area a person marked; company mix-ups learned; health check; answers through a fixed form, so replies are always readable; learns from checked vouchers, their layout and the corrections people made)
+// VoucherFlow — read-voucher (version 10: handwritten Hebrew dates read right to left; short Hebrew-date years kept as written; reads one area a person marked; company mix-ups learned; health check; answers through a fixed form, so replies are always readable; learns from checked vouchers, their layout and the corrections people made)
 // Reads one charity voucher image with Claude and returns the details it can see.
 // The Claude API key is stored as the Supabase secret ANTHROPIC_API_KEY and never leaves this function.
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
 // The app checks this number and warns when this function needs updating.
-const VERSION = 9
+const VERSION = 10
 
 const MODELS: Record<string, string> = {
   fast: 'claude-haiku-5-5',     // first read: quick and very cheap
@@ -111,6 +111,12 @@ How to read each field:
   and set date to null — it will be converted exactly. Write the YEAR EXACTLY AS WRITTEN on the voucher, as a number:
   תשפ"ו → 5786, פ"ו or פו → 86, 26 → 26 — do not convert it yourself.
   Month names written in English letters (e.g. 6/MAY/26 = 6 May 2026) are ordinary dates.
+  HANDWRITTEN HEBREW DATES are written in Hebrew cursive, RIGHT TO LEFT, usually entirely in Hebrew letters:
+  the DAY is the rightmost word (in letters: א–ל, e.g. ט״ו = 15, כ״ו = 26), then the MONTH, then the YEAR on the left
+  (e.g. פ״ו). Cursive Hebrew letters can look like Latin letters or digits — ו like 1 or I, פ like 0, ס like o,
+  כ like C, ט like 6 — so something that looks like "10" or "IC" inside a Hebrew date is almost always Hebrew letters
+  (e.g. "10" at the left end = פו, the year), not digits. Read the whole date as Hebrew before deciding.
+  If you can't make out the Hebrew month with confidence, put "date" in unsure.
   Otherwise give date as YYYY-MM-DD (UK order: day/month/year) and date_hebrew null.
 - boxes: for each field you found, WHERE it is on the full voucher image (not the close-ups): [left, top, width, height]
   as fractions of the image width and height (0 to 1), tightly around the value itself (not its label). Leave out fields you didn't find.
