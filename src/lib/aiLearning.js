@@ -12,6 +12,7 @@
 //      dropped zeros, swapped day/month, boxes mixed up… — and shows the AI close-ups of the
 //      corrected values, so it learns how this company's numbers and handwriting look.
 import { supabase } from './supabase.js'
+import { autoLevels } from './imageTools.js'
 
 const VALIDATED = ['valid', 'post_dated', 'not_valid', 'sent', 'received_success', 'received_pending', 'rejected', 'paid']
 const SAMPLE = 300
@@ -366,6 +367,7 @@ export function cropJpeg(bitmap, [fx, fy, fw, fh], minWidth = 900) {
   ctx.fillRect(0, 0, canvas.width, canvas.height)
   ctx.imageSmoothingQuality = 'high'
   ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height)
+  autoLevels(ctx, canvas.width, canvas.height)
   return canvas.toDataURL('image/jpeg', 0.9).split(',')[1]
 }
 

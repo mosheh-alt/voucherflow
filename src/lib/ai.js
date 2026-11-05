@@ -4,6 +4,7 @@
 import { supabase } from './supabase.js'
 import { parseHebrewDate } from './hebrewDate.js'
 import { combineWithAi, suggestCompany } from './companyGuess.js'
+import { autoLevels } from './imageTools.js'
 import { checkReading, companyKnowledge, exampleImages, learnedCrops, sampleImages } from './aiLearning.js'
 
 export async function aiEnabled() {
@@ -57,7 +58,37 @@ function jpeg(bitmap, area, maxWidth, maxHeight, upscale = 1) {
   ctx.fillRect(0, 0, canvas.width, canvas.height)
   ctx.imageSmoothingQuality = 'high'
   ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height)
+  autoLevels(ctx, canvas.width, canvas.height)
   return canvas.toDataURL('image/jpeg', 0.9).split(',')[1]
+}
+
+// The version of the "read-voucher" function this app expects (see supabase/functions/read-voucher).
+export const AI_FUNCTION_VERSION = 6
+
+// Checks the AI function: is it reachable, up to date, and is the AI key set?
+// Returns { ok, version, problem }.
+let healthCache = null // { at, promise } — checked at most every 10 minutes
+export function aiHealthCached() {
+  if (!healthCache || Date.now() - healthCache.at > 10 * 60 * 1000) healthCache = { at: Date.now(), promise: aiHealth() }
+  return healthCache.promise
+}
+
+export async function aiHealth() {
+  try {
+    const { data, error } = await supabase.functions.invoke('read-voucher', { body: { ping: true } })
+    if (error) {
+      let message = error.message
+      try { message = (await error.context.json()).error || message } catch { /* keep */ }
+      if (/No image sent/i.test(message)) return { ok: false, version: null, problem: 'outdated' }
+      return { ok: false, version: null, problem: message }
+    }
+    if (!data?.version) return { ok: false, version: null, problem: 'outdated' }
+    if (data.version < AI_FUNCTION_VERSION) return { ok: false, version: data.version, problem: 'outdated' }
+    if (!data.key) return { ok: false, version: data.version, problem: 'The ANTHROPIC_API_KEY secret is missing in Supabase' }
+    return { ok: true, version: data.version }
+  } catch (e) {
+    return { ok: false, version: null, problem: e.message || String(e) }
+  }
 }
 
 // Errors that go away if you wait a little: too many requests at once, AI busy, network blips.
@@ -230,8 +261,11 @@ async function readOne(voucher, blob, companies, settings = { firstModel: 'fast'
   let problems = checkReading(first, knowledge).filter((f) => filled.includes(FIELD_COLUMN[f]))
   const learnedLate = Boolean(knowledge?.examples?.length) && !first.examples_used
   const alreadyBest = firstStrong && first.examples_used > 0
+  // A voucher number that only the AI read (no barcode) is always read twice and compared —
+  // it decides duplicates and what is sent to the company, so it must be right.
+  const numberFromAi = filled.includes('voucher_number')
   let second = null
-  if (!alreadyBest && (stillMissing(after, company) || problems.length || learnedLate)) {
+  if (numberFromAi || (!alreadyBest && (stillMissing(after, company) || problems.length || learnedLate))) {
     // Clear the doubtful AI values so the second reading can replace them.
     const base = { ...after }
     for (const f of problems) base[FIELD_COLUMN[f]] = voucher[FIELD_COLUMN[f]] ?? null
@@ -243,13 +277,32 @@ async function readOne(voucher, blob, companies, settings = { firstModel: 'fast'
       patch.ai_data = { filled: filled2 }
       after = { ...voucher, ...patch }
       problems = checkReading(combine(first, second), knowledge).filter((f) => filled2.includes(FIELD_COLUMN[f]))
+      // Two readings of the voucher number disagree: keep the strong model's, and mark it for a close look.
+      if (numberFromAi && first.voucher_number && second.voucher_number &&
+          noZeros(first.voucher_number) !== noZeros(second.voucher_number)) {
+        patch.voucher_number = second.voucher_number
+        if (!problems.includes('voucher_number')) problems.push('voucher_number')
+      }
     } catch {
       /* keep the first reading */
       patch.ai_data = { filled }
     }
   }
   const final = combine(first, second)
+  // Barcode and print disagree about the voucher number: usually a barcode rule that needs
+  // adjusting (e.g. leading zeros). Shown on the row so a person decides.
+  let printCheck = null
+  if (voucher.barcode_read && voucher.voucher_number && final.voucher_number &&
+      noZeros(voucher.voucher_number) !== noZeros(final.voucher_number)) {
+    // (A difference in leading zeros only is a company setting — "Keep leading zeros" — not flagged.)
+    printCheck = {
+      barcode: voucher.voucher_number,
+      printed: String(final.voucher_number).replace(/\s+/g, ''),
+      zerosOnly: noZeros(voucher.voucher_number) === noZeros(final.voucher_number),
+    }
+  }
   patch.ai_data = {
+    ...(printCheck ? { print_check: printCheck } : {}),
     ...final,
     company_id: first.company_id ?? final.company_id ?? null,
     filled: patch.ai_data.filled,
@@ -355,7 +408,7 @@ export async function aiReadMany(items, companies, onProgress) {
         const message = e.message || String(e)
         failures.push(message)
         // Show on the row that the AI couldn't read it (only if it has no AI reading yet).
-        if (!voucher.ai_data) {
+        if (!voucher.ai_data || voucher.ai_data.error) {
           await supabase.from('vouchers').update({ ai_data: { error: message.slice(0, 300), failed_at: new Date().toISOString() } }).eq('id', voucher.id)
         }
       }

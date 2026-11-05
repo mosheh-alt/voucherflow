@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase.js'
-import { aiEnabled, aiSettings, aiTest, setAiEnabled, setAiSetting } from '../lib/ai.js'
+import { AI_FUNCTION_VERSION, aiEnabled, aiHealth, aiReadMany, aiSettings, aiTest, setAiEnabled, setAiSetting } from '../lib/ai.js'
 import { companyKnowledge, forgetKnowledge } from '../lib/aiLearning.js'
 import { money } from '../lib/format.js'
 import { useAuth } from '../auth.jsx'
@@ -83,6 +83,8 @@ export default function AiReading() {
           ) : <strong>{on ? 'On' : 'Off'}</strong>}
         </div>
       </div>
+
+      <AiHealthCard />
 
       {settings && (
         <div className="card">
@@ -290,6 +292,70 @@ function AiTestBench() {
           )}
         </>
       )}
+    </div>
+  )
+}
+
+// Is the AI working? Function version, AI key, and vouchers it couldn't read (with a retry).
+function AiHealthCard() {
+  const [health, setHealth] = useState(null)
+  const [failed, setFailed] = useState(null)
+  const [busy, setBusy] = useState(null)
+  const [note, setNote] = useState(null)
+
+  async function check() {
+    setHealth(null)
+    setHealth(await aiHealth())
+    const { data } = await supabase.from('vouchers').select('id, batch_id, image_path, company_id, company_hint, voucher_number, donor_account, amount, expiry_date, barcode_read, barcode_raw, ai_data, status')
+      .eq('status', 'pending').is('deleted_at', null).not('ai_data->>error', 'is', null).limit(500)
+    setFailed(data || [])
+  }
+  useEffect(() => { check() }, [])
+
+  async function retryAll() {
+    setNote(null)
+    const { data: companies } = await supabase.from('companies').select('*')
+    setBusy({ done: 0, total: failed.length })
+    const { updated, failures } = await aiReadMany(failed.map((voucher) => ({ voucher })), companies || [], (done, total) => setBusy({ done, total }))
+    setBusy(null)
+    setNote(`${updated} of ${failed.length} read.` + (failures.length ? ` Still failing: ${failures[0]}` : ''))
+    check()
+  }
+
+  const reasons = {}
+  for (const v of failed || []) {
+    const r = String(v.ai_data?.error || 'Unknown').replace(/\(\d+\)$/, '').slice(0, 120)
+    reasons[r] = (reasons[r] || 0) + 1
+  }
+
+  return (
+    <div className="card">
+      <div className="row between">
+        <strong>Health check</strong>
+        <button className="btn" onClick={check}>Check again</button>
+      </div>
+      {!health ? <p className="muted small">Checking…</p> : health.ok ? (
+        <p className="ok-text">✓ The AI function is working and up to date (version {health.version}).</p>
+      ) : health.problem === 'outdated' ? (
+        <div className="alert warn">
+          The AI function in Supabase is out of date{health.version ? ` (version ${health.version}, needs ${AI_FUNCTION_VERSION})` : ''}.
+          To update: open <a href="https://github.com/mosheh-alt/voucherflow/blob/main/supabase/functions/read-voucher/index.ts" target="_blank" rel="noreferrer">index.ts on GitHub</a> →
+          copy → Supabase → Edge Functions → read-voucher → Code → Ctrl+A, Ctrl+V → Deploy. Then click "Check again".
+        </div>
+      ) : <div className="alert bad">The AI function isn't working: {health.problem}</div>}
+
+      {failed && (failed.length === 0
+        ? <p className="muted small">No pending vouchers waiting on a failed AI reading.</p>
+        : (
+          <>
+            <p className="small"><strong>{failed.length}</strong> pending voucher(s) the AI couldn't read:</p>
+            <ul className="small">{Object.entries(reasons).map(([r, n]) => <li key={r}>{n} × {r}</li>)}</ul>
+            <button className="btn primary" disabled={Boolean(busy) || !health?.ok} onClick={retryAll}>
+              {busy ? `Reading ${busy.done} of ${busy.total}…` : `Retry all ${failed.length}`}
+            </button>
+          </>
+        ))}
+      {note && <p className="small">{note}</p>}
     </div>
   )
 }

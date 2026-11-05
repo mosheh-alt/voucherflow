@@ -1,7 +1,10 @@
-// VoucherFlow — read-voucher (version 5: answers through a fixed form, so replies are always readable; learns from checked vouchers, their layout and the corrections people made)
+// VoucherFlow — read-voucher (version 6: health check; answers through a fixed form, so replies are always readable; learns from checked vouchers, their layout and the corrections people made)
 // Reads one charity voucher image with Claude and returns the details it can see.
 // The Claude API key is stored as the Supabase secret ANTHROPIC_API_KEY and never leaves this function.
 import { createClient } from 'jsr:@supabase/supabase-js@2'
+
+// The app checks this number and warns when this function needs updating.
+const VERSION = 6
 
 const MODELS: Record<string, string> = {
   fast: 'claude-haiku-5-5',     // first read: quick and very cheap
@@ -56,6 +59,8 @@ Deno.serve(async (req) => {
     if (!apiKey) return json({ error: 'ANTHROPIC_API_KEY secret is not set in Supabase' }, 500)
 
     const body = await req.json()
+    // Health check from the app: is this function up to date and is the AI key set?
+    if (body?.ping) return json({ version: VERSION, key: Boolean(apiKey) })
     const { image, media_type, companies, company, hints, model } = body
     const crops: Crop[] = Array.isArray(body.crops) ? body.crops.slice(0, 6) : []
     const examples: Example[] = Array.isArray(body.examples) ? body.examples.filter((e: Example) => e?.image).slice(0, 4) : []
@@ -191,6 +196,7 @@ How to read each field:
       unsure: Array.isArray(f.unsure) ? f.unsure.map(String).slice(0, 10) : [],
       examples_used: examples.length,
       model: modelId,
+      version: VERSION,
     })
   } catch (e) {
     return json({ error: (e as Error).message || 'Unexpected error' }, 500)

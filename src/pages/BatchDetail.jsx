@@ -6,7 +6,7 @@ import { interpretBarcode } from '../lib/rules.js'
 import { collectorLabel, date, money } from '../lib/format.js'
 import { takePendingFiles } from '../lib/pending.js'
 import { reextract, reextractPatch } from '../lib/reextract.js'
-import { aiEnabled, aiReadMany } from '../lib/ai.js'
+import { aiEnabled, aiHealthCached, aiReadMany } from '../lib/ai.js'
 import { suggestCompany, historyPatch } from '../lib/companyGuess.js'
 import { useAuth } from '../auth.jsx'
 import { ErrorBox, Modal, Stat, StatusPill } from '../components.jsx'
@@ -77,6 +77,26 @@ export default function BatchDetail() {
   }, [load])
 
   useEffect(() => { aiEnabled().then(setAiOn).catch(() => setAiOn(false)) }, [])
+
+  // Is the AI function working and up to date? (Shown as a banner if not.)
+  const [aiHealth, setAiHealth] = useState(null)
+  useEffect(() => { if (aiOn) aiHealthCached().then(setAiHealth) }, [aiOn])
+
+  // Vouchers the AI couldn't read earlier (e.g. it was busy) are retried automatically, once per visit.
+  const retried = useRef(false)
+  useEffect(() => {
+    if (retried.current || !aiOn || !aiHealth?.ok || !companiesLoaded || progress) return
+    const failed = vouchers.filter((v) => v.status === 'pending' && v.ai_data?.error &&
+      Date.now() - new Date(v.ai_data.failed_at || 0).getTime() > 60 * 1000)
+    if (!failed.length) return
+    retried.current = true
+    ;(async () => {
+      const { updated } = await runAi(failed.map((voucher) => ({ voucher })), 'Retrying AI reading')
+      setError(`The AI had failed on ${failed.length} voucher(s) earlier — retried automatically: ${updated} now read.`)
+      await load()
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiOn, aiHealth, companiesLoaded, vouchers])
 
   // Lets the AI fill empty boxes on the given vouchers (a few at a time).
   async function runAi(items, label = 'AI reading') {
@@ -433,6 +453,13 @@ export default function BatchDetail() {
         </div>
       )}
 
+      {aiOn && aiHealth && !aiHealth.ok && (
+        <div className="alert warn">
+          {aiHealth.problem === 'outdated'
+            ? <>The AI reading function in Supabase is out of date{aiHealth.version ? ` (version ${aiHealth.version})` : ''}, so AI reading may fail. Update it: Supabase → Edge Functions → read-voucher → Code → paste the latest <code>index.ts</code> from GitHub → Deploy. (Details on the AI reading page.)</>
+            : <>AI reading isn't working right now: {aiHealth.problem}</>}
+        </div>
+      )}
       <ErrorBox error={error} />
 
       {vouchers.length > 0 && (

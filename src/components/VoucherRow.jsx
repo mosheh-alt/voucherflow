@@ -304,6 +304,16 @@ const VoucherRow = forwardRef(function VoucherRow(
             </button>
           )}
           {v.prefilled && v.status === 'pending' && <span className="flag info">Prefilled</span>}
+          {v.status === 'pending' && v.ai_data?.print_check && d.voucher_number === v.ai_data.print_check.barcode && (
+            <span className="pick-company">
+              <span className="flag warn" title="The number in the barcode is different from the number printed on the voucher">
+                Barcode {v.ai_data.print_check.barcode} ≠ printed {v.ai_data.print_check.printed}
+              </span>
+              <button type="button" className="btn small-btn" onClick={() => { set('voucher_number', v.ai_data.print_check.printed); update({ voucher_number: v.ai_data.print_check.printed }).catch((e) => setProblem(e.message)) }}>
+                Use printed
+              </button>
+            </span>
+          )}
           {v.status === 'pending' && v.ai_data?.error && (
             <span className="flag bad" title={v.ai_data.error}>AI couldn't read it — use Re-read barcodes ▾ → Read with AI</span>
           )}
