@@ -60,6 +60,36 @@ function jpeg(bitmap, area, maxWidth, maxHeight, upscale = 1) {
   return canvas.toDataURL('image/jpeg', 0.9).split(',')[1]
 }
 
+// Errors that go away if you wait a little: too many requests at once, AI busy, network blips.
+const BUSY = /rate.?limit|too many|overloaded|429|529|503|504|timeout|timed out|failed to fetch|network|busy/i
+const WAITS = [5000, 10000, 20000, 40000, 60000]
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+// Calls the reading function, waiting and trying again (up to 5 times) when the AI is busy.
+async function callReader(body) {
+  for (let attempt = 0; ; attempt++) {
+    let message = null
+    let retryAfter = 0
+    try {
+      const { data, error } = await supabase.functions.invoke('read-voucher', { body })
+      if (!error && !data?.error) return data
+      message = data?.error || error.message
+      if (error?.context) {
+        try {
+          const j = await error.context.json()
+          message = j.error || message
+          retryAfter = Number(j.retry_after) || 0
+        } catch { /* keep message */ }
+        if (error.context.status) message = `${message} (${error.context.status})`
+      }
+    } catch (e) {
+      message = e.message || String(e)
+    }
+    if (attempt >= WAITS.length || !BUSY.test(message)) throw new Error(message)
+    await sleep(Math.max(WAITS[attempt], retryAfter * 1000))
+  }
+}
+
 // Asks the AI to read one voucher image.
 //   company: the company if already known (from the barcode), so its hints and close-ups are used
 //   strong: use the stronger model
@@ -76,7 +106,7 @@ export async function aiReadImage(blob, companies, { company = null, strong = fa
     if (company && knowledge) crops.push(...learnedCrops(bitmap, knowledge))
     for (const key of company?.ai_crop || []) {
       const preset = CLOSE_UPS[key]
-      if (preset && crops.length < 6) crops.push({ label: preset.label, image: jpeg(bitmap, preset.area, 1400, 900, 2) })
+      if (preset && crops.length < 4) crops.push({ label: preset.label, image: jpeg(bitmap, preset.area, 1400, 900, 2) })
     }
   } finally {
     if (typeof bitmap.close === 'function') bitmap.close()
@@ -84,26 +114,19 @@ export async function aiReadImage(blob, companies, { company = null, strong = fa
   const [examples, samples] = company && knowledge
     ? await Promise.all([exampleImages(knowledge, excludeIds), sampleImages(knowledge, excludeIds)])
     : [[], []]
-  const { data, error } = await supabase.functions.invoke('read-voucher', {
-    body: {
-      examples,
-      samples,
-      facts: company && knowledge ? knowledge.facts : '',
-      image,
-      media_type: 'image/jpeg',
-      crops,
-      companies: active.map((c) => c.name),
-      company: company?.name || null,
-      hints: company?.ai_hints || null,
-      model: strong ? 'strong' : 'fast',
-    },
-  })
-  if (error) {
-    let message = error.message
-    try { message = (await error.context.json()).error || message } catch { /* keep message */ }
-    throw new Error(message)
+  const body = {
+    examples,
+    samples,
+    facts: company && knowledge ? knowledge.facts : '',
+    image,
+    media_type: 'image/jpeg',
+    crops,
+    companies: active.map((c) => c.name),
+    company: company?.name || null,
+    hints: company?.ai_hints || null,
+    model: strong ? 'strong' : 'fast',
   }
-  if (data?.error) throw new Error(data.error)
+  const data = await callReader(body)
 
   // Hebrew dates are converted here with an exact calendar calculation, not by the AI.
   let date = data.date
@@ -124,7 +147,11 @@ export function aiPatch(voucher, ai) {
   if (!voucher.voucher_number && ai.voucher_number) {
     patch.voucher_number = ai.voucher_number; filled.push('voucher_number')
   }
-  if (!voucher.donor_account && ai.account_number) { patch.donor_account = ai.account_number; filled.push('donor_account') }
+  // Never take the voucher number (from the barcode or the AI) as the account number.
+  const bare = (x) => String(x ?? '').replace(/\s+/g, '').replace(/^0+/, '')
+  const number = voucher.voucher_number || patch.voucher_number || ai.voucher_number
+  const accountIsNumber = ai.account_number && number && bare(ai.account_number) === bare(number)
+  if (!voucher.donor_account && ai.account_number && !accountIsNumber) { patch.donor_account = ai.account_number; filled.push('donor_account') }
   if ((voucher.amount === null || voucher.amount === undefined) && ai.amount != null) { patch.amount = ai.amount; filled.push('amount') }
   if (!voucher.expiry_date && ai.date) {
     patch.expiry_date = ai.date
@@ -318,12 +345,17 @@ export async function aiReadMany(items, companies, onProgress) {
         if (error) throw error
         updated++
       } catch (e) {
-        failures.push(e.message || String(e))
+        const message = e.message || String(e)
+        failures.push(message)
+        // Show on the row that the AI couldn't read it (only if it has no AI reading yet).
+        if (!voucher.ai_data) {
+          await supabase.from('vouchers').update({ ai_data: { error: message.slice(0, 300), failed_at: new Date().toISOString() } }).eq('id', voucher.id)
+        }
       }
       done++
       onProgress?.(done, items.length)
     }
   }
-  await Promise.all(Array.from({ length: Math.min(4, items.length) }, worker))
+  await Promise.all(Array.from({ length: Math.min(2, items.length) }, worker))
   return { updated, failures }
 }

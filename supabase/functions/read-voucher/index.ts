@@ -128,7 +128,14 @@ How to read each field:
       body: JSON.stringify({ model: modelId, max_tokens: 800, messages: [{ role: 'user', content }] }),
     })
     const out = await res.json()
-    if (!res.ok) return json({ error: out?.error?.message || `Claude API error ${res.status}` }, 502)
+    if (!res.ok) {
+      // Busy / too many requests: tell the app to wait and try again.
+      const busy = res.status === 429 || res.status === 529 || res.status >= 500
+      return json({
+        error: out?.error?.message || `Claude API error ${res.status}`,
+        retry_after: Number(res.headers.get('retry-after')) || null,
+      }, busy ? 429 : 502)
+    }
 
     const text = (out.content || []).filter((c: { type: string }) => c.type === 'text').map((c: { text: string }) => c.text).join('')
     const match = text.match(/\{[\s\S]*\}/)

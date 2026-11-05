@@ -15,7 +15,7 @@ import { supabase } from './supabase.js'
 
 const VALIDATED = ['valid', 'post_dated', 'not_valid', 'sent', 'received_success', 'received_pending', 'rejected', 'paid']
 const SAMPLE = 300
-const MAX_EXAMPLES = 3
+const MAX_EXAMPLES = 2
 const CACHE_MS = 10 * 60 * 1000
 const HEBREW = /[֐-׿]/
 
@@ -199,7 +199,7 @@ function exampleImage(r) {
       if (error) throw error
       const bitmap = await createImageBitmap(data)
       try {
-        const scale = Math.min(1, 1000 / Math.max(bitmap.width, bitmap.height))
+        const scale = Math.min(1, 800 / Math.max(bitmap.width, bitmap.height))
         const canvas = document.createElement('canvas')
         canvas.width = Math.round(bitmap.width * scale)
         canvas.height = Math.round(bitmap.height * scale)
@@ -298,7 +298,7 @@ export function lessonsFrom(corrections) {
 // Close-ups of values people corrected, cut from those checked vouchers at full resolution,
 // so the AI sees how this company's digits and handwriting really look.
 const sampleCache = new Map()
-export async function sampleImages(knowledge, excludeIds = [], max = 3) {
+export async function sampleImages(knowledge, excludeIds = [], max = 2) {
   if (!knowledge?.corrections?.length) return []
   const picks = []
   for (const c of knowledge.corrections) {
@@ -333,7 +333,7 @@ function sampleImage(c, layout) {
       if (error) throw error
       const bitmap = await createImageBitmap(data)
       try {
-        return cropJpeg(bitmap, padBox(box, 0.6), 900)
+        return cropJpeg(bitmap, padBox(box, 0.6), 700)
       } finally {
         if (typeof bitmap.close === 'function') bitmap.close()
       }
@@ -373,7 +373,8 @@ export function cropJpeg(bitmap, [fx, fy, fw, fh], minWidth = 900) {
 export function learnedCrops(bitmap, knowledge) {
   const out = []
   for (const [field, box] of Object.entries(knowledge?.layout || {})) {
-    out.push({ label: `where the ${FIELD_LABELS[field]} usually is on this company's vouchers`, image: cropJpeg(bitmap, padBox(box, 0.6), 1000) })
+    if (out.length >= 3) break
+    out.push({ label: `where the ${FIELD_LABELS[field]} usually is on this company's vouchers`, image: cropJpeg(bitmap, padBox(box, 0.6), 800) })
   }
   return out
 }

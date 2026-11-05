@@ -303,6 +303,9 @@ const VoucherRow = forwardRef(function VoucherRow(
             </button>
           )}
           {v.prefilled && v.status === 'pending' && <span className="flag info">Prefilled</span>}
+          {v.status === 'pending' && v.ai_data?.error && (
+            <span className="flag bad" title={v.ai_data.error}>AI couldn't read it — use Re-read barcodes ▾ → Read with AI</span>
+          )}
           {aiFilled.length > 0 && <span className="flag ai-flag" title="Filled in by AI — please check against the picture">AI – check</span>}
           {aiDoubts.length > 0 && (
             <span className="flag warn" title="The AI wasn't sure, or the value doesn't fit this company's usual pattern">

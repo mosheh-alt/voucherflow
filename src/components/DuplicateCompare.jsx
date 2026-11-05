@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
 import StoredImage from './StoredImage.jsx'
-import { REMOVABLE, removeVoucher } from '../lib/duplicates.js'
+import { REMOVABLE, numberVariants, removeVoucher } from '../lib/duplicates.js'
 import { date, money } from '../lib/format.js'
 import { useAuth } from '../auth.jsx'
 import { ErrorBox, Modal, StatusPill } from '../components.jsx'
@@ -24,7 +24,7 @@ export default function DuplicateCompare({ voucher, companyById, onClose, onChan
         let otherId = voucher.duplicate_of
         // Older vouchers were flagged before the link was stored: look the match up now.
         if (!otherId) {
-          const { data } = await supabase.from('vouchers').select('id, company_id').eq('voucher_number', voucher.voucher_number)
+          const { data } = await supabase.from('vouchers').select('id, company_id').in('voucher_number', numberVariants(voucher.voucher_number))
             .neq('id', voucher.id).is('deleted_at', null).order('created_at').limit(20)
           otherId = (data || []).find((o) => !voucher.company_id || !o.company_id || o.company_id === voucher.company_id)?.id
         }

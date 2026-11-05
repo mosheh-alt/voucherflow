@@ -44,6 +44,7 @@ Run each update file in `supabase/` once, in number order, the same way as the s
 - `012_cosmon_belz.sql` — Cosmon Belz: dummy barcode ignored, AI hints for the printed voucher number
 - `013_small_pictures.sql` — small copies of voucher pictures for fast pages
 - `014_ai_corrections.sql` — records every correction people make to barcode / AI values, so the AI learns from them
+- `015_bat_voucher_numbers.sql` — BAT voucher numbers keep their leading zeros; option per company; pending BAT vouchers corrected
 - `fix_missing_columns.sql` — catch-up: adds anything from 004–008 that is missing
 
 ### 1c. AI reading function

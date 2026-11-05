@@ -4,6 +4,16 @@ import { supabase } from './supabase.js'
 // Statuses where a voucher may still be removed (not yet sent to the company).
 export const REMOVABLE = ['pending', 'valid', 'post_dated', 'not_valid']
 
+// The same number written with and without leading zeros (280182, 0280182, 00280182 …).
+export function numberVariants(n) {
+  const s = String(n).trim()
+  if (!/^\d+$/.test(s)) return [s]
+  const bare = s.replace(/^0+(?=\d)/, '')
+  const out = new Set([s, bare])
+  for (let len = bare.length + 1; len <= 12; len++) out.add(bare.padStart(len, '0'))
+  return [...out]
+}
+
 // Looks for another voucher with the same number and the same company
 // (or where one of the two has no company yet). Returns its id, or null.
 export async function findDuplicate({ id, voucher_number, company_id }) {
@@ -11,7 +21,7 @@ export async function findDuplicate({ id, voucher_number, company_id }) {
   let q = supabase
     .from('vouchers')
     .select('id, company_id')
-    .eq('voucher_number', voucher_number)
+    .in('voucher_number', numberVariants(voucher_number))
     .is('deleted_at', null)
     .order('created_at')
     .limit(20)

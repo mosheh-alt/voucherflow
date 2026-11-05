@@ -129,8 +129,9 @@ export function interpretBarcode(barcode, companies) {
       // Some barcodes hold the voucher number in two parts (e.g. Miffal): (?<voucher1>…) + (?<voucher2>…)
       if (!g.voucher && g.voucher1) g.voucher = `${g.voucher1}${g.voucher2 || ''}`
       if (g.voucher) {
-        // Numeric voucher numbers are stored without leading zeros (03924783 → 3924783).
-        result.fields.voucher_number = /^\d+$/.test(g.voucher) ? g.voucher.replace(/^0+(?=\d)/, '') : g.voucher
+        // Numeric voucher numbers are stored without leading zeros (03924783 → 3924783),
+        // unless the company prints them with zeros (e.g. BAT 00280182) and is set to keep them.
+        result.fields.voucher_number = /^\d+$/.test(g.voucher) && !company.keep_zeros ? g.voucher.replace(/^0+(?=\d)/, '') : g.voucher
       } else {
         result.fields.voucher_number = code
       }

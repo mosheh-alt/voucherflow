@@ -10,7 +10,7 @@ import LearnedPanel from '../components/LearnedPanel.jsx'
 const EMPTY = {
   name: '', submission_method: 'physical', report_email: '', portal_url: '', address: '',
   barcode_pattern: '', amount_divisor: 100, expiry_format: 'YYMMDD', accepted: true, active: true, notes: '',
-  date_type: 'written', validity_months: '', urgent_days: 3, ai_hints: '', ai_crop: [], amount_codes: null,
+  date_type: 'written', validity_months: '', urgent_days: 3, keep_zeros: false, ai_hints: '', ai_crop: [], amount_codes: null,
 }
 
 // "03=2, 04=3" → { "03": 2, "04": 3 }
@@ -102,6 +102,7 @@ function CompanyForm({ initial, onClose, onSaved }) {
       urgent_days: f.urgent_days === '' ? 3 : Number(f.urgent_days),
       ai_hints: f.ai_hints?.trim() || null,
       amount_codes: parseCodes(codesText),
+      ...(f.keep_zeros ? { keep_zeros: true } : initial.keep_zeros ? { keep_zeros: false } : {}),
       ai_crop: f.ai_crop?.length ? f.ai_crop : null,
       notes: f.notes?.trim() || null,
     }
@@ -154,6 +155,8 @@ function CompanyForm({ initial, onClose, onSaved }) {
         <label>Amount codes <span className="muted">(only if the barcode holds a code instead of the amount, e.g. 03=2, 04=3, 05=5)</span>
           <input className="mono" value={codesText} onChange={(e) => setCodesText(e.target.value)} placeholder="code=£, code=£ …" />
         </label>
+        <label className="check"><input type="checkbox" checked={Boolean(f.keep_zeros)} onChange={(e) => set('keep_zeros', e.target.checked)} />
+          Keep leading zeros in the voucher number (e.g. 00280182 stays 00280182)</label>
         <label>Test a barcode<input className="mono" value={testBarcode} onChange={(e) => setTestBarcode(e.target.value)} placeholder="Paste or type a real barcode value" /></label>
         {test && (
           test.company ? (
