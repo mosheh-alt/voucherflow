@@ -1,37 +1,56 @@
 import { useEffect, useRef, useState } from 'react'
-import { cachedUrl, pictureError, pictureUrl, watchPicture } from '../lib/imageUrls.js'
+import { pictureError } from '../lib/imageUrls.js'
+import { pictureFor, pictureReadyNow } from '../lib/pictureCache.js'
 
 const RETRY_AFTER = [0, 2000, 8000, 30000]
 
-// A voucher picture from storage that keeps working however long the page stays open:
-// its link is renewed before it expires, and if it ever fails to load it fetches a new one
-// and tries again (then keeps trying whenever the computer wakes or comes back online).
-// fallback: another picture to show if this one can't be loaded (e.g. the original when the small copy fails)
+// A voucher picture. Shown instantly when it's already on this computer; otherwise downloaded
+// once (only when it scrolls near the screen) and kept for next time. If loading fails it tries
+// again with a fresh link, and finally offers "click to retry".
+//   fallback: another picture to show if this one can't be loaded (e.g. the original when the small copy fails)
 export default function StoredImage({ path, fallback, className = '', alt = 'Voucher', title, onClick, ...rest }) {
-  const [url, setUrl] = useState(() => cachedUrl(path))
+  const [url, setUrl] = useState(() => pictureReadyNow(path))
   const [failed, setFailed] = useState(false)
+  const [near, setNear] = useState(() => Boolean(pictureReadyNow(path)))
+  const [why, setWhy] = useState(null)
+  const holder = useRef(null)
   const tries = useRef(0)
   const alive = useRef(true)
+
+  // Only start loading when the picture is on (or close to) the screen.
+  useEffect(() => {
+    if (near || !holder.current) return undefined
+    if (typeof IntersectionObserver === 'undefined') { setNear(true); return undefined }
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) { setNear(true); io.disconnect() }
+    }, { rootMargin: '800px 0px' })
+    io.observe(holder.current)
+    return () => io.disconnect()
+  }, [near, path])
 
   useEffect(() => {
     alive.current = true
     tries.current = 0
     setFailed(false)
-    setUrl(cachedUrl(path))
-    if (!path) return undefined
-    pictureUrl(path).then((u) => { if (alive.current) { if (u) setUrl(u); else retry() } })
-    const stop = watchPicture(path, (u) => { if (alive.current) { setUrl(u); setFailed(false); tries.current = 0 } })
-    return () => { alive.current = false; stop() }
+    setWhy(null)
+    setUrl(pictureReadyNow(path))
+    if (!path || !near) return undefined
+    load(false)
+    return () => { alive.current = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path])
+  }, [path, near])
 
-  function retry() {
+  function load(fresh) {
+    pictureFor(path, { fresh })
+      .then((u) => { if (!alive.current) return; if (u) setUrl(u); else retry('No picture') })
+      .catch((e) => { if (alive.current) retry(e.message) })
+  }
+
+  function retry(reason) {
+    if (reason) setWhy(reason)
     if (tries.current >= RETRY_AFTER.length) { setFailed(true); return }
     const wait = RETRY_AFTER[tries.current++]
-    setTimeout(() => {
-      if (!alive.current) return
-      pictureUrl(path, true).then((u) => { if (!alive.current) return; if (u) setUrl(u); else retry() })
-    }, wait)
+    setTimeout(() => { if (alive.current) load(tries.current > 1) }, wait) // first retry from this computer, then a fresh download
   }
 
   if (!path) return <div className={className} />
@@ -39,13 +58,14 @@ export default function StoredImage({ path, fallback, className = '', alt = 'Vou
     return <StoredImage path={fallback} className={className} alt={alt} title={title} onClick={onClick} {...rest} />
   }
   if (!url || failed) {
-    const why = failed ? (pictureError(path) || (url ? 'The picture link did not open' : null)) : null
+    const reason = failed ? (why || pictureError(path) || 'The picture did not open') : null
     return (
-      <div className={`${className} img-missing`} title="Click to load the picture again"
-        onClick={(e) => { e.stopPropagation(); tries.current = 0; setFailed(false); retry() }}>
-        {failed ? <>↻ Picture didn’t load — click to retry{why && <span className="img-why">{why}</span>}</> : 'Loading…'}
+      <div ref={holder} className={`${className} img-missing`} title="Click to load the picture again"
+        onClick={(e) => { e.stopPropagation(); tries.current = 0; setFailed(false); setNear(true); load(true) }}>
+        {failed ? <>↻ Picture didn’t load — click to retry<span className="img-why">{reason}</span></> : <span className="img-loading" />}
       </div>
     )
   }
-  return <img src={url} className={className} alt={alt} title={title} onClick={onClick} loading="lazy" onError={retry} {...rest} />
+  return <img src={url} className={className} alt={alt} title={title} onClick={onClick} decoding="async"
+    onError={() => retry('The picture file could not be shown')} {...rest} />
 }

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { keepPicture } from './pictureCache.js'
 
 const url = import.meta.env.VITE_SUPABASE_URL
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -62,7 +63,9 @@ export async function storeThumbnail(batchId, blob) {
     if (!small) return null
     const path = `${batchId}/thumbs/${crypto.randomUUID()}.jpg`
     const { error } = await supabase.storage.from('vouchers').upload(path, small, { contentType: 'image/jpeg' })
-    return error ? null : path
+    if (error) return null
+    keepPicture(path, small) // shows instantly on this computer, no download needed
+    return path
   } catch {
     return null
   }

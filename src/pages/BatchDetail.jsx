@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { supabase, fetchAll, signedUrls, storeThumbnail } from '../lib/supabase.js'
+import { keepPicture } from '../lib/pictureCache.js'
 import { readBarcode } from '../lib/barcode.js'
 import { interpretBarcode } from '../lib/rules.js'
 import { collectorLabel, date, money } from '../lib/format.js'
@@ -81,6 +82,40 @@ export default function BatchDetail() {
   // Is the AI function working and up to date? (Shown as a banner if not.)
   const [aiHealth, setAiHealth] = useState(null)
   useEffect(() => { if (aiOn) aiHealthCached().then(setAiHealth) }, [aiOn])
+
+  // Older vouchers without a small copy get one automatically in the background (2 at a time),
+  // so their pictures load fast from then on. Needs upload permission (admin / batch entry).
+  const [smallNote, setSmallNote] = useState(null)
+  const madeSmall = useRef(false)
+  useEffect(() => {
+    if (madeSmall.current || !batch || !can('admin', 'batch_entry')) return
+    const todo = vouchers.filter((x) => !x.thumb_path && x.image_path)
+    if (!todo.length) return
+    madeSmall.current = true
+    let done = 0
+    const queue = [...todo]
+    const worker = async () => {
+      while (queue.length) {
+        const v = queue.shift()
+        try {
+          const { data: blob } = await supabase.storage.from('vouchers').download(v.image_path)
+          if (blob) {
+            keepPicture(v.image_path, blob)
+            const path = await storeThumbnail(batch.id, blob)
+            if (path) {
+              const { error } = await supabase.from('vouchers').update({ thumb_path: path }).eq('id', v.id)
+              if (!error) setVouchers((list) => list.map((x) => (x.id === v.id ? { ...x, thumb_path: path } : x)))
+            }
+          }
+        } catch { /* try again next visit */ }
+        done++
+        setSmallNote(done < todo.length ? `Making fast pictures for older vouchers: ${done} of ${todo.length}…` : null)
+      }
+    }
+    setSmallNote(`Making fast pictures for older vouchers: 0 of ${todo.length}…`)
+    Promise.all([worker(), worker()])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batch, vouchers])
 
   // Vouchers the AI couldn't read earlier (e.g. it was busy) are retried automatically, once per visit.
   const retried = useRef(false)
@@ -168,6 +203,7 @@ export default function BatchDetail() {
         const path = `${batch.id}/${crypto.randomUUID()}.${ext}`
         const { error: upErr } = await supabase.storage.from('vouchers').upload(path, file, { contentType: file.type })
         if (upErr) throw upErr
+        keepPicture(path, file)
 
         // Plain-number voucher with no company rule: ask the number history.
         let hist = null
@@ -453,6 +489,7 @@ export default function BatchDetail() {
         </div>
       )}
 
+      {smallNote && <div className="muted small">{smallNote} (you can keep working)</div>}
       {aiOn && aiHealth && !aiHealth.ok && (
         <div className="alert warn">
           {aiHealth.problem === 'outdated'
