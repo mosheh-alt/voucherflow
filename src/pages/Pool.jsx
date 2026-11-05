@@ -85,10 +85,6 @@ export default function Pool() {
   const pageRows = shown.slice(page * PAGE, page * PAGE + PAGE)
   const pages = Math.max(1, Math.ceil(shown.length / PAGE))
 
-  useEffect(() => {
-    signedUrls(pageRows.map((r) => r.thumb_path || r.image_path)).then(setThumbs)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, shown])
 
   // Totals per company for everything matching the filters.
   const perCompany = useMemo(() => {
@@ -226,11 +222,6 @@ export default function Pool() {
         onSelectAll={(checked) => setSelected((cur) => { const n = new Set(cur); pageRows.forEach((r) => (checked ? n.add(r.id) : n.delete(r.id))); return n })}
         onRowUpdated={(row) => setRows((list) => list.map((x) => (x.id === row.id ? row : x)))}
         onChanged={async (msg) => { setNotice(msg); await load() }}
-        onImageError={() => {
-          if (Date.now() - lastRefresh.current < 60000) return // links expired: fetch fresh ones, at most once a minute
-          lastRefresh.current = Date.now()
-          signedUrls(pageRows.map((r) => r.thumb_path || r.image_path)).then(setThumbs)
-        }}
         empty={search.trim() ? 'No vouchers match your search in this tab. Try the "All validated" tab.' : 'No vouchers here.'}
       />
 

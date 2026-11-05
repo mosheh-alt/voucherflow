@@ -61,8 +61,6 @@ export default function BatchDetail() {
         .select('id, voucher_number, company_id, amount, deleted_at, deleted_reason')
         .eq('batch_id', id).not('deleted_at', 'is', null).order('deleted_at', { ascending: false })
       setRemoved(gone || [])
-      // Small copies where they exist (fast), otherwise the original picture.
-      setThumbs(await signedUrls(rows.map((v) => v.thumb_path || v.image_path)))
     } catch (e) {
       setError(e)
     }
@@ -276,8 +274,8 @@ export default function BatchDetail() {
   async function refreshPictures() {
     if (refreshing.current) return
     refreshing.current = true
-    setThumbs(await signedUrls(vouchers.map((v) => v.thumb_path || v.image_path)))
-    setTimeout(() => { refreshing.current = false }, 60000)
+    // Pictures now renew their own links (StoredImage); nothing to do here.
+    refreshing.current = false
   }
 
   // Older vouchers were stored only full-size; this makes small copies so the page loads quickly.

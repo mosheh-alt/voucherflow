@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { supabase, signedUrls } from '../lib/supabase.js'
+import { supabase } from '../lib/supabase.js'
+import StoredImage from './StoredImage.jsx'
 import { NOT_VALID_REASONS, decideStatus, interpretBarcode, missingFields } from '../lib/rules.js'
 import { date, dateTime, money, today } from '../lib/format.js'
 import { useAuth } from '../auth.jsx'
@@ -28,7 +29,6 @@ function formFrom(v) {
 //   imageUrls: optional { image_path: url } already loaded, so the image shows instantly
 export default function VoucherEditor({ batch, vouchers, companies, currentId, onGo, onSaved, onFinished, imageUrls }) {
   const { session } = useAuth()
-  const [imageUrl, setImageUrl] = useState(null)
   const [zoom, setZoom] = useState(false)
   const [form, setForm] = useState(null)
   const [error, setError] = useState(null)
@@ -58,9 +58,6 @@ export default function VoucherEditor({ batch, vouchers, companies, currentId, o
     setError(null)
     setRejecting(false)
     setZoom(false)
-    const known = imageUrls?.[current.image_path]
-    setImageUrl(known || null)
-    if (!known) signedUrls([current.image_path]).then((m) => setImageUrl(m[current.image_path] || null))
     supabase
       .from('voucher_history')
       .select('changed_at, action, changed_by')
@@ -246,7 +243,7 @@ export default function VoucherEditor({ batch, vouchers, companies, currentId, o
   return (
     <div className="validate-body">
       <div className={`image-pane ${zoom ? 'zoom' : ''}`} onClick={() => setZoom(!zoom)} title="Click to zoom">
-        {imageUrl ? <img src={imageUrl} alt="Voucher" /> : <div className="muted">Loading image…</div>}
+        <StoredImage path={current.image_path} />
       </div>
 
       <form className="field-pane" onSubmit={submitValid}>

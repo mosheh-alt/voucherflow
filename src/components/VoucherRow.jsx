@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import { supabase, signedUrls } from '../lib/supabase.js'
+import { supabase } from '../lib/supabase.js'
+import StoredImage from './StoredImage.jsx'
 import { decideStatus, isPlaceholderBarcode, missingFields } from '../lib/rules.js'
 import { date, today } from '../lib/format.js'
 import { parseHebrewDate } from '../lib/hebrewDate.js'
@@ -53,7 +54,6 @@ const VoucherRow = forwardRef(function VoucherRow(
   const amountRef = useRef(null)
   const accountRef = useRef(null)
   const [suggested, setSuggested] = useState(null) // { account, from, distance }
-  const [fullUrl, setFullUrl] = useState(null) // full-size picture, loaded only when zoomed in
   const [hebrewOpen, setHebrewOpen] = useState(false)
   const [hebrewText, setHebrewText] = useState('')
   const [hebrewProblem, setHebrewProblem] = useState(false)
@@ -63,9 +63,6 @@ const VoucherRow = forwardRef(function VoucherRow(
     ? (expanded ? 'thumb-big thumb-huge' : 'thumb-big')
     : (expanded ? 'thumb-big' : '')
 
-  useEffect(() => {
-    if (expanded && v.thumb_path && !fullUrl) signedUrls([v.image_path]).then((m) => setFullUrl(m[v.image_path] || null))
-  }, [expanded, v.thumb_path, v.image_path, fullUrl])
 
   // Keep the boxes in step when the voucher changes (saved, or barcode re-read),
   // without wiping anything still being typed in another box.
@@ -226,9 +223,10 @@ const VoucherRow = forwardRef(function VoucherRow(
     <tr onFocus={suggestAccount} className={(problem ? 'row-problem' : v.status === 'pending' ? 'row-pending' : '') + (selected ? ' row-selected' : '')}>
       <td><input type="checkbox" checked={Boolean(selected)} onChange={() => onSelect(v.id)} aria-label="Select voucher" /></td>
       <td>
-        {thumb
-          ? <img className={`thumb zoomable ${pictureSize}`} src={expanded && fullUrl ? fullUrl : thumb} onError={() => onImageError?.()} alt="Voucher" loading="lazy" title={expanded ? "Click to make smaller" : "Click to enlarge"} onClick={() => onToggleImage(v.id)} />
-          : <div className="thumb" />}
+        {/* Small copy normally; the full-size picture only when enlarged. */}
+        <StoredImage className={`thumb zoomable ${pictureSize}`}
+          path={expanded && v.thumb_path ? v.image_path : (v.thumb_path || v.image_path)}
+          title={expanded ? 'Click to make smaller' : 'Click to enlarge'} onClick={() => onToggleImage(v.id)} />
       </td>
       {showBatch && <td className="mono"><strong>{v.collector_reference}</strong></td>}
       <td>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { supabase, signedUrls } from '../lib/supabase.js'
+import { supabase } from '../lib/supabase.js'
+import StoredImage from './StoredImage.jsx'
 import { REMOVABLE, removeVoucher } from '../lib/duplicates.js'
 import { date, money } from '../lib/format.js'
 import { useAuth } from '../auth.jsx'
@@ -33,7 +34,6 @@ export default function DuplicateCompare({ voucher, companyById, onClose, onChan
         const thisOne = rows.find((r) => r.id === voucher.id)
         const other = rows.find((r) => r.id === otherId) || null
         setPair([thisOne, other])
-        setUrls(await signedUrls(rows.map((r) => r.image_path)))
       } catch (e) {
         setError(e)
       }
@@ -74,7 +74,7 @@ export default function DuplicateCompare({ voucher, companyById, onClose, onChan
     return (
       <div className="dup-card">
         <div className="row between"><strong>{title}</strong><StatusPill status={v.status} /></div>
-        {urls[v.image_path] ? <img src={urls[v.image_path]} alt="Voucher" /> : <div className="thumb" />}
+        <StoredImage path={v.image_path} />
         <table className="dup-facts">
           <tbody>
             <tr><th>Voucher no.</th><td className="mono">{v.voucher_number}</td></tr>

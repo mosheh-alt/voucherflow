@@ -48,7 +48,6 @@ export default function VoucherSearch() {
       const found = (data || []).filter((v) => voucherMatches(v, text, companyById) && passesFilter(v, filter))
       setRows(found)
       setSelected(new Set())
-      setThumbs(await signedUrls(found.map((v) => v.thumb_path || v.image_path)))
     } catch (err) {
       setError(err)
     } finally {
@@ -104,11 +103,6 @@ export default function VoucherSearch() {
             onSelectAll={(checked) => setSelected(checked ? new Set(rows.map((r) => r.id)) : new Set())}
             onRowUpdated={(row) => setRows((list) => list.map((x) => (x.id === row.id ? row : x)))}
             onChanged={async (msg) => { await run(); setNotice(msg) }}
-            onImageError={() => {
-              if (Date.now() - lastRefresh.current < 60000) return
-              lastRefresh.current = Date.now()
-              signedUrls(rows.map((v) => v.thumb_path || v.image_path)).then(setThumbs)
-            }}
             empty="No vouchers match."
           />
         </>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { signedUrls } from '../lib/supabase.js'
+import StoredImage from './StoredImage.jsx'
 import { FIELD_LABELS, companyKnowledge } from '../lib/aiLearning.js'
 
 const COLOURS = { voucher_number: '#2563eb', account_number: '#9333ea', amount: '#16a34a', date: '#ea580c' }
@@ -18,11 +18,7 @@ export default function LearnedPanel({ companyId }) {
     companyKnowledge(companyId).then(async (know) => {
       setK(know || false)
       const sample = know?.examples?.[0]
-      if (sample) {
-        const path = sample.thumb_path || sample.image_path
-        const urls = await signedUrls([path])
-        setPicture(urls[path] || null)
-      }
+      if (sample) setPicture(sample.thumb_path || sample.image_path)
     })
   }, [companyId])
 
@@ -42,7 +38,7 @@ export default function LearnedPanel({ companyId }) {
           <div className="small muted">Where each detail is (learned)</div>
           {picture ? (
             <div className="layout-pic">
-              <img src={picture} alt="Example voucher" />
+              <StoredImage path={picture} alt="Example voucher" />
               {fields.filter((f) => k.layout[f]).map((f) => {
                 const [l, t, w, h] = k.layout[f]
                 return (
