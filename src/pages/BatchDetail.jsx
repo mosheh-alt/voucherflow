@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { supabase, fetchAll, signedUrls, storeThumbnail } from '../lib/supabase.js'
 import { keepPicture } from '../lib/pictureCache.js'
+import { createPreview, previewsAvailable, previewsForBatch } from '../lib/previews.js'
 import { readBarcode } from '../lib/barcode.js'
 import { interpretBarcode } from '../lib/rules.js'
 import { collectorLabel, date, money } from '../lib/format.js'
@@ -26,7 +27,9 @@ export default function BatchDetail() {
   const [vouchers, setVouchers] = useState([])
   const [companies, setCompanies] = useState([])
   const [companiesLoaded, setCompaniesLoaded] = useState(false)
-  const [thumbs, setThumbs] = useState({})
+  const [thumbs, setThumbs] = useState({}) // voucher id → tiny preview
+  const [previewsLoaded, setPreviewsLoaded] = useState(false)
+  const previewsFetched = useRef(null)
   const [error, setError] = useState(null)
   const [progress, setProgress] = useState(null) // { done, total, current }
   const [dragging, setDragging] = useState(false)
@@ -58,6 +61,11 @@ export default function BatchDetail() {
         supabase.from('vouchers').select('*').eq('batch_id', id).is('deleted_at', null).order('created_at')
       )
       setVouchers(rows)
+      // Tiny previews come in one request, so all pictures show at once.
+      if (previewsFetched.current !== id) {
+        previewsFetched.current = id
+        previewsForBatch(id).then((m) => { setThumbs((cur) => ({ ...m, ...cur })); setPreviewsLoaded(true) })
+      }
       const { data: gone } = await supabase.from('vouchers')
         .select('id, voucher_number, company_id, amount, deleted_at, deleted_reason')
         .eq('batch_id', id).not('deleted_at', 'is', null).order('deleted_at', { ascending: false })
@@ -88,8 +96,9 @@ export default function BatchDetail() {
   const [smallNote, setSmallNote] = useState(null)
   const madeSmall = useRef(false)
   useEffect(() => {
-    if (madeSmall.current || !batch || !can('admin', 'batch_entry')) return
-    const todo = vouchers.filter((x) => !x.thumb_path && x.image_path)
+    if (madeSmall.current || !batch || !previewsLoaded) return
+    const canStore = can('admin', 'batch_entry')
+    const todo = vouchers.filter((x) => x.image_path && ((canStore && !x.thumb_path) || (previewsAvailable() && !thumbs[x.id])))
     if (!todo.length) return
     madeSmall.current = true
     let done = 0
@@ -98,13 +107,21 @@ export default function BatchDetail() {
       while (queue.length) {
         const v = queue.shift()
         try {
-          const { data: blob } = await supabase.storage.from('vouchers').download(v.image_path)
+          // The small copy is enough to make the preview; the original only if there's no small copy yet.
+          const source = v.thumb_path || v.image_path
+          const { data: blob } = await supabase.storage.from('vouchers').download(source)
           if (blob) {
-            keepPicture(v.image_path, blob)
-            const path = await storeThumbnail(batch.id, blob)
-            if (path) {
-              const { error } = await supabase.from('vouchers').update({ thumb_path: path }).eq('id', v.id)
-              if (!error) setVouchers((list) => list.map((x) => (x.id === v.id ? { ...x, thumb_path: path } : x)))
+            keepPicture(source, blob)
+            if (canStore && !v.thumb_path) {
+              const path = await storeThumbnail(batch.id, blob)
+              if (path) {
+                const { error } = await supabase.from('vouchers').update({ thumb_path: path }).eq('id', v.id)
+                if (!error) setVouchers((list) => list.map((x) => (x.id === v.id ? { ...x, thumb_path: path } : x)))
+              }
+            }
+            if (!thumbs[v.id]) {
+              const p = await createPreview(v.id, batch.id, blob)
+              if (p) setThumbs((m) => ({ ...m, [v.id]: p }))
             }
           }
         } catch { /* try again next visit */ }
@@ -115,7 +132,7 @@ export default function BatchDetail() {
     setSmallNote(`Making fast pictures for older vouchers: 0 of ${todo.length}…`)
     Promise.all([worker(), worker()])
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [batch, vouchers])
+  }, [batch, vouchers, previewsLoaded])
 
   // Vouchers the AI couldn't read earlier (e.g. it was busy) are retried automatically, once per visit.
   const retried = useRef(false)
@@ -235,6 +252,7 @@ export default function BatchDetail() {
         }
         if (insErr) throw insErr
         aiItems.push({ voucher: inserted, blob: file })
+        createPreview(inserted.id, batch.id, file).then((p) => p && setThumbs((m) => ({ ...m, [inserted.id]: p })))
         if (inserted.voucher_number) seen.set(inserted.voucher_number, [...(seen.get(inserted.voucher_number) || []), { id: inserted.id, company_id: inserted.company_id }])
       } catch (e) {
         failures.push(`${file.name}: ${e.message || e}`)
@@ -558,7 +576,7 @@ export default function BatchDetail() {
                 batch={batch}
                 companies={companies}
                 companyById={companyById}
-                thumb={thumbs[v.thumb_path || v.image_path]}
+                preview={thumbs[v.id]}
                 expanded={zoomedId === v.id}
                 onToggleImage={(id) => setZoomedId((z) => (z === id ? null : id))}
                 onUpdated={onRowUpdated}

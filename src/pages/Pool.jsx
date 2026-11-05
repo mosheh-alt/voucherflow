@@ -7,6 +7,7 @@ import { useAuth } from '../auth.jsx'
 import { ErrorBox, Modal } from '../components.jsx'
 import VoucherTable from '../components/VoucherTable.jsx'
 import RemoveDialog from '../components/RemoveDialog.jsx'
+import { previewsFor } from '../lib/previews.js'
 import { voucherMatches } from '../lib/search.js'
 import { REMOVABLE } from '../lib/duplicates.js'
 
@@ -83,6 +84,13 @@ export default function Pool() {
   }, [rows, search, companyById])
 
   const pageRows = shown.slice(page * PAGE, page * PAGE + PAGE)
+  // Tiny previews for this page, in one request.
+  const pageKey = pageRows.map((r) => r.id).join(',')
+  useEffect(() => {
+    const missing = pageRows.map((r) => r.id).filter((id) => !(id in thumbs))
+    if (missing.length) previewsFor(missing).then((m) => setThumbs((cur) => ({ ...cur, ...m })))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageKey])
   const pages = Math.max(1, Math.ceil(shown.length / PAGE))
 
 

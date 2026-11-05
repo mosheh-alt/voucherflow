@@ -8,7 +8,9 @@ const RETRY_AFTER = [0, 2000, 8000, 30000]
 // once (only when it scrolls near the screen) and kept for next time. If loading fails it tries
 // again with a fresh link, and finally offers "click to retry".
 //   fallback: another picture to show if this one can't be loaded (e.g. the original when the small copy fails)
-export default function StoredImage({ path, fallback, className = '', alt = 'Voucher', title, onClick, ...rest }) {
+//   preview: tiny picture from the database, shown at once while the sharp one comes
+//   sharp: false = the preview is enough at this size (small rows) — nothing is downloaded
+export default function StoredImage({ path, fallback, preview, sharp = true, className = '', alt = 'Voucher', title, onClick, ...rest }) {
   const [url, setUrl] = useState(() => pictureReadyNow(path))
   const [failed, setFailed] = useState(false)
   const [near, setNear] = useState(() => Boolean(pictureReadyNow(path)))
@@ -34,11 +36,11 @@ export default function StoredImage({ path, fallback, className = '', alt = 'Vou
     setFailed(false)
     setWhy(null)
     setUrl(pictureReadyNow(path))
-    if (!path || !near) return undefined
+    if (!path || !near || (preview && !sharp)) return undefined
     load(false)
     return () => { alive.current = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path, near])
+  }, [path, near, sharp])
 
   function load(fresh) {
     pictureFor(path, { fresh })
@@ -55,7 +57,11 @@ export default function StoredImage({ path, fallback, className = '', alt = 'Vou
 
   if (!path) return <div className={className} />
   if (failed && fallback && fallback !== path) {
-    return <StoredImage path={fallback} className={className} alt={alt} title={title} onClick={onClick} {...rest} />
+    return <StoredImage path={fallback} preview={preview} sharp={sharp} className={className} alt={alt} title={title} onClick={onClick} {...rest} />
+  }
+  // Preview first: shows straight away; swapped for the sharp picture when it arrives.
+  if (preview && (!url || failed || !sharp)) {
+    return <img ref={holder} src={preview} className={`${className} img-preview`} alt={alt} title={title} onClick={onClick} {...rest} />
   }
   if (!url || failed) {
     const reason = failed ? (why || pictureError(path) || 'The picture did not open') : null

@@ -45,7 +45,7 @@ function clean(d) {
 // One voucher row on the batch page, with the data entered directly in the row.
 // Leaving a box saves it; Enter (or ✓) validates the voucher and jumps to the next one.
 const VoucherRow = forwardRef(function VoucherRow(
-  { v, batch, companies, companyById, thumb, expanded, onToggleImage, onUpdated, onNext, canEdit, selected, onSelect, onShowDuplicate, onRemove, onImageError, showBatch },
+  { v, batch, companies, companyById, thumb, expanded, onToggleImage, onUpdated, onNext, canEdit, selected, onSelect, onShowDuplicate, onRemove, onImageError, showBatch, preview },
   ref
 ) {
   // On the pool and search lists each voucher brings its own batch (drop-off date).
@@ -310,6 +310,7 @@ const VoucherRow = forwardRef(function VoucherRow(
         <div ref={picRef} className={`mark-wrap ${marking ? 'marking' : ''}`}
           onMouseDown={markDown} onMouseMove={markMove} onMouseUp={markUp} onMouseLeave={() => drag && markUp()}>
           <StoredImage className={`thumb zoomable ${pictureSize}`} draggable={false}
+            preview={preview} sharp={Boolean(pictureSize)}
             path={(expanded || marking) && v.thumb_path ? v.image_path : (v.thumb_path || v.image_path)}
             fallback={v.image_path}
             title={marking ? '' : expanded ? 'Click to make smaller' : 'Click to enlarge'} onClick={marking ? undefined : () => onToggleImage(v.id)} />

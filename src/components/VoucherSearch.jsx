@@ -5,6 +5,7 @@ import { money } from '../lib/format.js'
 import { ErrorBox } from '../components.jsx'
 import VoucherTable from './VoucherTable.jsx'
 import RemoveDialog from './RemoveDialog.jsx'
+import { previewsFor } from '../lib/previews.js'
 import { REMOVABLE } from '../lib/duplicates.js'
 
 const LIMIT = 300
@@ -47,6 +48,7 @@ export default function VoucherSearch() {
       if (error) throw error
       const found = (data || []).filter((v) => voucherMatches(v, text, companyById) && passesFilter(v, filter))
       setRows(found)
+      previewsFor(found.map((v) => v.id)).then(setThumbs)
       setSelected(new Set())
     } catch (err) {
       setError(err)

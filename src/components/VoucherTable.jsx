@@ -35,7 +35,7 @@ export default function VoucherTable({ rows, companies, companyById, thumbs, sel
                 showBatch
                 companies={companies}
                 companyById={companyById}
-                thumb={thumbs[v.thumb_path || v.image_path]}
+                preview={thumbs?.[v.id]}
                 expanded={zoomedId === v.id}
                 onToggleImage={(id) => setZoomedId((z) => (z === id ? null : id))}
                 onUpdated={(data) => onRowUpdated({ ...v, ...data })}

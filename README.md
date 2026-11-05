@@ -46,6 +46,7 @@ Run each update file in `supabase/` once, in number order, the same way as the s
 - `014_ai_corrections.sql` — records every correction people make to barcode / AI values, so the AI learns from them
 - `015_bat_voucher_numbers.sql` — BAT voucher numbers keep their leading zeros; option per company; pending BAT vouchers corrected
 - `016_marked_places.sql` — places people mark on the picture (📍) to teach the AI where details are
+- `017_picture_previews.sql` — tiny previews of every voucher picture in the database, so pictures show at once for everyone
 - `fix_missing_columns.sql` — catch-up: adds anything from 004–008 that is missing
 
 ### 1c. AI reading function
