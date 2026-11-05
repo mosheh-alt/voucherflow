@@ -1,10 +1,10 @@
-// VoucherFlow — read-voucher (version 8: reads one area a person marked; company mix-ups learned; health check; answers through a fixed form, so replies are always readable; learns from checked vouchers, their layout and the corrections people made)
+// VoucherFlow — read-voucher (version 9: short Hebrew-date years kept as written; reads one area a person marked; company mix-ups learned; health check; answers through a fixed form, so replies are always readable; learns from checked vouchers, their layout and the corrections people made)
 // Reads one charity voucher image with Claude and returns the details it can see.
 // The Claude API key is stored as the Supabase secret ANTHROPIC_API_KEY and never leaves this function.
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
 // The app checks this number and warns when this function needs updating.
-const VERSION = 8
+const VERSION = 9
 
 const MODELS: Record<string, string> = {
   fast: 'claude-haiku-5-5',     // first read: quick and very cheap
@@ -106,8 +106,11 @@ How to read each field:
   readable, give that. If they clearly disagree, give null. Put the words, as written, in amount_words.
 - date: the date written or printed on the voucher. It is often handwritten, and may be in the Hebrew (Jewish)
   calendar, e.g. ט"ו חשון תשפ"ז. Put the date exactly as written in date_text.
-  If it is a Hebrew date: put it in date_hebrew as "day monthname year" with an English month name and full year,
-  e.g. "15 Cheshvan 5787" (use Adar I / Adar II where relevant), and set date to null — it will be converted exactly.
+  If it is a Hebrew date (a Hebrew month name, even with an ordinary short year like "10 ניסן 26"): put it in date_hebrew
+  as "day monthname year" with an English month name, e.g. "15 Cheshvan 5787" (use Adar I / Adar II where relevant),
+  and set date to null — it will be converted exactly. Write the YEAR EXACTLY AS WRITTEN on the voucher, as a number:
+  תשפ"ו → 5786, פ"ו or פו → 86, 26 → 26 — do not convert it yourself.
+  Month names written in English letters (e.g. 6/MAY/26 = 6 May 2026) are ordinary dates.
   Otherwise give date as YYYY-MM-DD (UK order: day/month/year) and date_hebrew null.
 - boxes: for each field you found, WHERE it is on the full voucher image (not the close-ups): [left, top, width, height]
   as fractions of the image width and height (0 to 1), tightly around the value itself (not its label). Leave out fields you didn't find.

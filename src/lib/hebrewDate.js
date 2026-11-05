@@ -115,7 +115,15 @@ export function parseHebrewDate(input) {
   if (numbers.length < 2) return null
   let [day, year] = numbers
   if (day > 30 && year <= 30) [day, year] = [year, day]
-  if (year < 1000) year += 5000 // Hebrew years are usually written without the thousands (תשפ"ז = 5787)
+  if (year < 50) {
+    // A short ordinary year next to a Hebrew month ("10 ניסן 26" = 2026): the Hebrew year that month falls in.
+    // Tishrei–Kislev are in the autumn, so they belong to the next Hebrew year.
+    year = 2000 + year + (month >= 7 && month <= 9 ? 3761 : 3760)
+  } else if (year < 100) {
+    year += 5700 // written without ת"ש: פ"ו = 86 → 5786
+  } else if (year < 1000) {
+    year += 5000 // written without the thousands: תשפ"ז = 787 → 5787
+  }
   const iso = hebrewToIso(year, month, day)
   return iso ? { iso, text: String(input).trim() } : null
 }
