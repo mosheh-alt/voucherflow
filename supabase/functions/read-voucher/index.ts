@@ -1,4 +1,4 @@
-// VoucherFlow — read-voucher (version 4: learns from checked vouchers, their layout and the corrections people made)
+// VoucherFlow — read-voucher (version 5: answers through a fixed form, so replies are always readable; learns from checked vouchers, their layout and the corrections people made)
 // Reads one charity voucher image with Claude and returns the details it can see.
 // The Claude API key is stored as the Supabase secret ANTHROPIC_API_KEY and never leaves this function.
 import { createClient } from 'jsr:@supabase/supabase-js@2'
@@ -78,7 +78,7 @@ ${examples.length ? `You were first shown ${examples.length} example voucher(s) 
 ${samples.length ? `You were also shown close-ups from checked vouchers of the same company with what they really say — study how this company's digits and handwriting look, so you read the same shapes correctly here.` : ''}
 ${crops.length ? `After the full voucher you also get zoomed close-ups of parts of it (labelled) — use them to read small print.` : ''}
 
-Reply with ONLY a JSON object, no other text:
+Give your answer by calling the record_voucher tool with these fields:
 {"company": string|null, "voucher_number": string|null, "account_number": string|null,
  "amount": number|null, "amount_words": string|null,
  "date": "YYYY-MM-DD"|null, "date_text": string|null, "date_hebrew": string|null,
@@ -122,10 +122,39 @@ How to read each field:
     }
     content.push({ type: 'text', text: instructions })
 
+    // The answer must be given through this form, so it can always be read (no free text to decode).
+    const box = { type: 'array', items: { type: 'number' }, description: '[left, top, width, height] as fractions 0–1 of the full image' }
+    const nullable = (type: string) => ({ type: [type, 'null'] })
+    const tool = {
+      name: 'record_voucher',
+      description: 'Record the details read from the voucher.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          company: nullable('string'),
+          voucher_number: nullable('string'),
+          account_number: nullable('string'),
+          amount: nullable('number'),
+          amount_words: nullable('string'),
+          date: nullable('string'),
+          date_text: nullable('string'),
+          date_hebrew: nullable('string'),
+          unsure: { type: 'array', items: { type: 'string' } },
+          boxes: { type: 'object', properties: { voucher_number: box, account_number: box, amount: box, date: box } },
+        },
+        required: ['company', 'voucher_number', 'account_number', 'amount', 'date'],
+      },
+    }
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model: modelId, max_tokens: 800, messages: [{ role: 'user', content }] }),
+      body: JSON.stringify({
+        model: modelId,
+        max_tokens: 1500,
+        tools: [tool],
+        tool_choice: { type: 'tool', name: 'record_voucher' },
+        messages: [{ role: 'user', content }],
+      }),
     })
     const out = await res.json()
     if (!res.ok) {
@@ -137,17 +166,23 @@ How to read each field:
       }, busy ? 429 : 502)
     }
 
-    const text = (out.content || []).filter((c: { type: string }) => c.type === 'text').map((c: { text: string }) => c.text).join('')
-    const match = text.match(/\{[\s\S]*\}/)
-    if (!match) return json({ error: 'Could not understand the reply', raw: text }, 502)
-    const f = JSON.parse(match[0])
+    // Normally the answer is in the form; older-style text replies are still accepted as a fallback.
+    const used = (out.content || []).find((c: { type: string; name?: string }) => c.type === 'tool_use' && c.name === 'record_voucher')
+    // deno-lint-ignore no-explicit-any
+    let f: any = used?.input ?? null
+    if (!f) {
+      const text = (out.content || []).filter((c: { type: string }) => c.type === 'text').map((c: { text: string }) => c.text).join('')
+      const match = text.match(/\{[\s\S]*\}/)
+      try { f = match ? JSON.parse(match[0]) : null } catch { f = null }
+      if (!f) return json({ error: `Could not understand the reply (stopped: ${out.stop_reason}): ${text.slice(0, 200)}` }, 502)
+    }
     const str = (v: unknown) => (v === null || v === undefined || v === '' ? null : String(v).trim())
 
     return json({
       company: company || (names.includes(f.company) ? f.company : null),
       voucher_number: str(f.voucher_number)?.replace(/\s+/g, '') ?? null,
       account_number: str(f.account_number)?.replace(/\s+/g, '') ?? null,
-      amount: typeof f.amount === 'number' && f.amount > 0 ? Math.round(f.amount * 100) / 100 : null,
+      amount: Number(f.amount) > 0 ? Math.round(Number(f.amount) * 100) / 100 : null,
       amount_words: str(f.amount_words),
       date: /^\d{4}-\d{2}-\d{2}$/.test(f.date || '') ? f.date : null,
       date_text: str(f.date_text),

@@ -196,7 +196,14 @@ async function readOne(voucher, blob, companies, settings = { firstModel: 'fast'
   let company = fromHistory ? null : byId[voucher.company_id] || null
   let knowledge = settings.learning && company ? await companyKnowledge(company.id) : null
   const firstStrong = settings.firstModel === 'strong'
-  const first = await aiReadImage(blob, companies, { company, strong: firstStrong, knowledge, excludeIds: [voucher.id] })
+  let first
+  try {
+    first = await aiReadImage(blob, companies, { company, strong: firstStrong, knowledge, excludeIds: [voucher.id] })
+  } catch (e) {
+    // The quick model couldn't give an answer: try once with the strong model before giving up.
+    if (firstStrong) throw e
+    first = await aiReadImage(blob, companies, { company, strong: true, knowledge, excludeIds: [voucher.id] })
+  }
   let patch = aiPatch(voucher, first)
   if (fromHistory) Object.assign(patch, combineWithAi(voucher, first.company_id))
   // The AI read a voucher number the barcode didn't have: ask the number history about the company too.
