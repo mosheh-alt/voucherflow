@@ -358,7 +358,7 @@ export async function aiTest({ company, companies, count = 10, methods, onProgre
     .select('id, batch_id, voucher_number, donor_account, amount, expiry_date, date_text, image_path, thumb_path')
     .eq('company_id', company.id)
     .in('status', ['valid', 'post_dated', 'not_valid', 'sent', 'received_success', 'received_pending', 'rejected', 'paid'])
-    .is('deleted_at', null)
+    .or('deleted_at.is.null,deleted_reason.eq.Test data')
     .not('voucher_number', 'is', null)
     .order('created_at', { ascending: false })
     .limit(400)

@@ -82,7 +82,8 @@ async function buildKnowledge(companyId) {
     .select(cols + extra)
     .eq('company_id', companyId)
     .in('status', VALIDATED)
-    .is('deleted_at', null)
+    // Test vouchers removed at go-live ("Test data") still teach the AI; they're never shown anywhere else.
+    .or('deleted_at.is.null,deleted_reason.eq.Test data')
     .order('created_at', { ascending: false })
     .limit(SAMPLE)
   // marked_boxes = places people pointed to on the picture (database update 16); works without it too.
