@@ -37,4 +37,9 @@ drop policy if exists "edit submissions" on public.submissions;
 create policy "edit submissions" on public.submissions for update to authenticated
   using (public.my_role() is not null) with check (public.my_role() is not null);
 
+-- AAC is sent by uploading on its charity portal.
+update public.companies
+set submission_method = 'portal', portal_url = coalesce(portal_url, 'https://charities.achisomoch.org/vouchers-scan.php')
+where name = 'AAC – Achisomoch Aid Company';
+
 notify pgrst, 'reload schema';
