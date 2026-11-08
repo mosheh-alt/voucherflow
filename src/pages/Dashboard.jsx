@@ -51,7 +51,7 @@ export default function Dashboard() {
       <ErrorBox error={error} />
       <Link to="/vouchers" className="pool-banner">
         <div>
-          <strong>Voucher pool</strong>
+          <strong>Voucher management</strong>
           <div className="muted small">All validated vouchers from every batch — send, receive and track them here</div>
         </div>
         <span className="btn primary">Open the pool →</span>

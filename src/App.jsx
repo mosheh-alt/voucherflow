@@ -39,7 +39,7 @@ export default function App() {
         <nav>
           <NavLink to="/" end>Dashboard</NavLink>
           <NavLink to="/batches">Batches</NavLink>
-          <NavLink to="/vouchers">Voucher pool</NavLink>
+          <NavLink to="/vouchers">Voucher management</NavLink>
           <NavLink to="/collectors">Collectors</NavLink>
           <NavLink to="/submissions">Submissions</NavLink>
           <NavLink to="/search">Find</NavLink>

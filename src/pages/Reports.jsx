@@ -4,6 +4,7 @@ import { STATUS_LABELS, STATUS_ORDER, collectorLabel, date, money, today } from 
 import { downloadCSV } from '../lib/csv.js'
 import { ErrorBox } from '../components.jsx'
 import VoucherSearch from '../components/VoucherSearch.jsx'
+import ExpectedDeposits from '../components/ExpectedDeposits.jsx'
 
 function monthStart() {
   return today().slice(0, 8) + '01'
@@ -105,6 +106,7 @@ export default function Reports() {
   return (
     <>
       <div className="page-head"><h1>Reports</h1></div>
+      <ExpectedDeposits />
       <VoucherSearch />
       <h2 style={{ marginTop: 28 }}>Collector report</h2>
       <form className="filters" onSubmit={run}>

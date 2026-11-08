@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
 import { METHOD_LABELS, date, money, today } from '../lib/format.js'
+import { downloadCSV } from '../lib/csv.js'
 import { useAuth } from '../auth.jsx'
 import { ErrorBox, Modal } from '../components.jsx'
 import {
@@ -33,9 +34,9 @@ function SubmissionList() {
       <div className="page-head">
         <div>
           <h1>Submissions</h1>
-          <div className="muted">Each submission is one send of vouchers to one company. Create them from the Voucher pool: select vouchers → <em>Prepare submission</em>.</div>
+          <div className="muted">Each submission is one send of vouchers to one company. Create them from Voucher management: select vouchers → <em>Prepare submission</em>.</div>
         </div>
-        <Link className="btn" to="/vouchers">Go to the voucher pool</Link>
+        <Link className="btn" to="/vouchers">Go to voucher management</Link>
       </div>
       <ErrorBox error={error} />
       <div className="table-wrap">
@@ -185,6 +186,9 @@ function SubmissionDetail({ id }) {
         </div>
       )}
 
+      <SubmissionReport sub={sub} company={company} vouchers={vouchers} />
+
+      <h2>Vouchers in this submission</h2>
       <div className="table-wrap">
         <table className="table">
           <thead><tr><th>Voucher no.</th><th>Account no.</th><th className="num">Amount</th><th>Date</th><th>Collector</th><th>Status</th><th /></tr></thead>
@@ -235,5 +239,58 @@ function SentForm({ sub, onClose, onDone, userId }) {
         </div>
       </form>
     </Modal>
+  )
+}
+
+// The report for one submission: what is being sent, the total, and what to expect in the bank.
+// Printable (or "Save as PDF" from the print window) and downloadable as CSV.
+function SubmissionReport({ sub, company, vouchers }) {
+  const total = vouchers.reduce((t, v) => t + Number(v.amount || 0), 0)
+  const byAmount = Object.entries(vouchers.reduce((m, v) => { const k = Number(v.amount || 0).toFixed(2); m[k] = (m[k] || 0) + 1; return m }, {}))
+    .sort((a, b) => Number(b[0]) - Number(a[0]))
+  const sentOn = sub.sent_at ? date(sub.sent_at) : null
+  function exportCSV() {
+    downloadCSV(`submission-${sub.submission_no}_${(company?.name || 'company').replace(/\W+/g, '-')}.csv`, [
+      { label: 'Submission', value: () => sub.submission_no },
+      { label: 'Company', value: () => company?.name || '' },
+      { label: 'Voucher no.', value: 'voucher_number' },
+      { label: 'Account no.', value: 'donor_account' },
+      { label: 'Amount £', value: (v) => (v.amount == null ? '' : Number(v.amount).toFixed(2)) },
+      { label: 'Date on voucher', value: 'expiry_date' },
+      { label: 'Collector ref', value: 'collector_reference' },
+    ], vouchers)
+  }
+  return (
+    <div className="card print-area submission-report">
+      <div className="row between no-print">
+        <strong>Report</strong>
+        <div className="row gap">
+          <button className="btn" onClick={exportCSV}>Export CSV</button>
+          <button className="btn primary" onClick={() => window.print()}>Print / save as PDF</button>
+        </div>
+      </div>
+      <h2 style={{ marginTop: 8 }}>{company?.name} — submission #{sub.submission_no}</h2>
+      <table className="report-facts">
+        <tbody>
+          <tr><td>Prepared</td><td>{date(sub.created_at)}</td></tr>
+          <tr><td>How it's sent</td><td>{METHOD_LABELS[sub.method] || sub.method}</td></tr>
+          <tr><td>Status</td><td>{SUBMISSION_STATUS[sub.status]}{sentOn ? ` on ${sentOn}` : ''}{sub.reference ? ` · ref ${sub.reference}` : ''}</td></tr>
+          <tr><td>Vouchers</td><td><strong>{vouchers.length}</strong></td></tr>
+          <tr className="big"><td>Expected in the bank</td><td><strong>{money(total)}</strong> from {company?.name}</td></tr>
+        </tbody>
+      </table>
+      {byAmount.length > 1 && (
+        <p className="small muted">By amount: {byAmount.map(([a, n]) => `${n} × £${a}`).join(' · ')}</p>
+      )}
+      <table className="table report-list">
+        <thead><tr><th>#</th><th>Voucher no.</th><th>Account no.</th><th>Date on voucher</th><th>Collector</th><th className="num">Amount</th></tr></thead>
+        <tbody>
+          {vouchers.map((v, i) => (
+            <tr key={v.id}><td>{i + 1}</td><td className="mono">{v.voucher_number}</td><td className="mono">{v.donor_account || ''}</td><td>{date(v.expiry_date)}</td><td className="mono">{v.collector_reference}</td><td className="num">{money(v.amount)}</td></tr>
+          ))}
+          <tr><td colSpan={5}><strong>Total ({vouchers.length} vouchers)</strong></td><td className="num"><strong>{money(total)}</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
   )
 }

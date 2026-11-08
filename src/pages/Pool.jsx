@@ -173,7 +173,7 @@ export default function Pool() {
     <>
       <div className="page-head">
         <div>
-          <h1>Voucher pool</h1>
+          <h1>Voucher management</h1>
           <div className="muted">All validated vouchers from every batch, in one place — send, receive and track them here.</div>
         </div>
         <button className="btn" onClick={exportCSV} disabled={!shown.length}>Export CSV{selectedRows.length ? ` (${selectedRows.length} selected)` : ''}</button>

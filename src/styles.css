@@ -345,3 +345,14 @@ ul.plain { list-style: none; padding-left: 0; }
 .valid-chip { display: block; margin-top: 4px; font-size: 11px; padding: 2px 4px; border: 1px solid var(--line); border-radius: 999px; background: #fafbfc; color: var(--muted); max-width: 210px; }
 .valid-chip.own { background: var(--bad-bg); color: var(--bad); border-color: #f0c3bf; font-weight: 600; }
 .send-steps { padding-left: 20px; } .send-steps li { margin: 10px 0; } .send-steps .btn { margin-top: 6px; }
+
+/* Submission report (printable) */
+.report-facts td { padding: 3px 16px 3px 0; }
+.report-facts td:first-child { color: var(--muted); }
+.report-facts tr.big td { font-size: 16px; padding-top: 8px; }
+@media print {
+  body * { visibility: hidden; }
+  .print-area, .print-area * { visibility: visible; }
+  .print-area { position: absolute; left: 0; top: 0; width: 100%; border: 0; box-shadow: none; }
+  .no-print { display: none !important; }
+}
