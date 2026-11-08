@@ -32,13 +32,19 @@
     const m = (document.body.innerText || '').match(/ACCOUNT\s*\n?\s*(\d{3,6})/i)
     return m ? m[1] : null
   }
+  // The "Upload vouchers" window (the smallest visible block containing its title and Continue).
+  function uploadWindow() {
+    return [...document.querySelectorAll('div,section,form')]
+      .filter((el) => visible(el) && /Upload vouchers/i.test(el.innerText || '') && /Continue/i.test(el.innerText || ''))
+      .sort((a, b) => (a.innerText || '').length - (b.innerText || '').length)[0] || null
+  }
   function uploadStates() {
-    const texts = [...document.querySelectorAll('div,span,p,small,li')]
-      .filter((el) => el.children.length === 0 && visible(el)).map((el) => el.innerText.trim())
+    const text = (uploadWindow() || document.body).innerText || ''
+    const count = (re) => (text.match(re) || []).length
     return {
-      uploaded: texts.filter((t) => /^uploaded$/i.test(t)).length,
-      uploading: texts.filter((t) => /^uploading/i.test(t)).length,
-      failed: texts.filter((t) => /fail|error|too large|not allowed|invalid/i.test(t) && t.length < 80).length,
+      uploaded: count(/\bUploaded\b/gi),
+      uploading: count(/\bUploading/gi),
+      failed: count(/\b(failed|error|too large|not allowed|invalid file)\b/gi),
     }
   }
   async function waitFor(fn, ms, step = 300) {
@@ -61,24 +67,90 @@
     return new File([bytes], f.name, { type: r.type })
   }
 
-  // Puts files into the portal's upload box: first through its file input, else as a "drop".
+  // Messages from the helper inside the page (aac-main.js).
+  function fromMain(type, ms) {
+    return new Promise((resolve) => {
+      const t = setTimeout(() => { window.removeEventListener('message', h); resolve(null) }, ms)
+      function h(e) {
+        if (e.source !== window || e.data?.source !== 'vf-main') return
+        if (type && e.data.type !== type && e.data.type !== 'fill-failed') return
+        clearTimeout(t); window.removeEventListener('message', h); resolve(e.data)
+      }
+      window.addEventListener('message', h)
+    })
+  }
+  const tell = (msg) => window.postMessage({ source: 'vf-ext', ...msg }, '*')
+  const started = (before) => waitFor(() => { const s = uploadStates(); return s.uploaded + s.uploading > before }, 8000)
+
+  // Puts files into the portal's upload box, trying three ways:
+  //  1. click the portal's own "Browse files" — the helper hands the pictures to it instead of opening the window
+  //  2. put them straight into the page's file box(es)
+  //  3. "drop" them onto the drag-and-drop box
+  const tried = []
   async function addFiles(files, before) {
-    const dt = new DataTransfer()
-    files.forEach((f) => dt.items.add(f))
-    const input = [...document.querySelectorAll('input[type=file]')].pop()
-    if (input) {
-      input.files = dt.files
-      input.dispatchEvent(new Event('input', { bubbles: true }))
-      input.dispatchEvent(new Event('change', { bubbles: true }))
-      const ok = await waitFor(() => { const s = uploadStates(); return s.uploaded + s.uploading > before }, 6000)
-      if (ok) return true
-    }
+    const browse = byText('button,a,label,span,div', /^browse files$/i)
+    if (browse) {
+      tell({ type: 'arm', files })
+      await fromMain('armed', 2000)
+      browse.click()
+      const r = await fromMain('filled', 3000)
+      tried.push(`browse:${r ? r.type : 'no click'}`)
+      if (r?.type === 'filled' && await started(before)) return true
+      tell({ type: 'disarm' })
+    } else tried.push('browse:not found')
+    tell({ type: 'set-input', files })
+    const r2 = await fromMain('filled', 2000)
+    tried.push(`input:${r2 ? (r2.inputs ?? r2.type) : 'no answer'}`)
+    if (await started(before)) return true
+    tell({ type: 'drop', files })
+    const r3 = await fromMain('filled', 2000)
+    tried.push(`drop:${r3 ? r3.type : 'no answer'}`)
+    return Boolean(await started(before))
+  }
+
+  // Details to send to support when the portal didn't take the pictures.
+  function diagnose() {
+    const inputs = [...document.querySelectorAll('input[type=file]')].map((i) => `${i.id || '-'}|${i.name || '-'}|${i.accept || '-'}|${i.multiple ? 'multi' : 'single'}|${visible(i) ? 'shown' : 'hidden'}|${i.className || ''}`)
     const zone = byText('div,label,section', /drag and drop your voucher/i)
-    if (!zone) return false
-    for (const type of ['dragenter', 'dragover', 'drop']) {
-      zone.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt }))
+    const w = uploadWindow()
+    return [
+      `v${chrome.runtime.getManifest().version} ${location.pathname}`,
+      `tried: ${tried.join(' ; ')}`,
+      `file inputs (${inputs.length}): ${inputs.join(' || ')}`,
+      `drop box: ${zone ? `${zone.tagName}.${zone.className}` : 'none'}`,
+      `upload window: ${w ? `${w.tagName}.${w.className}` : 'none'} states ${JSON.stringify(uploadStates())}`,
+      `scripts: ${[...document.scripts].map((x) => (x.src || '').split('/').pop()).filter(Boolean).join(', ').slice(0, 400)}`,
+    ].join('\n')
+  }
+
+  // After Continue: the portal lists the vouchers it read. Compare them with VoucherFlow.
+  function readPortalRows() {
+    const rows = []
+    for (const nameBox of document.querySelectorAll('input')) {
+      const fileName = (nameBox.value || '').trim()
+      if (!/\.(jpe?g|png|pdf)$/i.test(fileName)) continue
+      let row = nameBox.parentElement
+      while (row && row.querySelectorAll('input').length < 3) row = row.parentElement
+      if (!row) continue
+      const values = [...row.querySelectorAll('input')].map((i) => (i.value || i.placeholder || '').trim())
+      const number = values.find((v) => /^\d{5,}$/.test(v)) || null
+      const amountText = values.find((v) => /£\s*\d/.test(v)) || ''
+      const amount = amountText ? Number(amountText.replace(/[^\d.]/g, '')) : null
+      const around = `${row.previousElementSibling?.innerText || ''} ${row.innerText || ''}`
+      rows.push({ fileName, number, amount, problem: /already submitted|error|invalid/i.test(around) ? around.trim().split('\n')[0].slice(0, 120) : null })
     }
-    return Boolean(await waitFor(() => { const s = uploadStates(); return s.uploaded + s.uploading > before }, 6000))
+    return rows
+  }
+  function compareWithJob(rows) {
+    const bare = (x) => String(x || '').replace(/^0+/, '')
+    const ours = new Map(job.files.map((f) => [f.name, f]))
+    const mine = rows.filter((r) => ours.has(r.fileName))
+    const others = rows.filter((r) => !ours.has(r.fileName))
+    const mismatches = mine.filter((r) => {
+      const f = ours.get(r.fileName)
+      return (r.number && bare(r.number) !== bare(f.voucher_number)) || (r.amount != null && f.amount != null && Number(r.amount) !== Number(f.amount))
+    })
+    return { mine, others, mismatches, ours }
   }
 
   // ---------- the upload ----------
@@ -102,7 +174,11 @@
         for (const f of part) files.push(await getFile(f))
         const before = uploadStates()
         const added = await addFiles(files, before.uploaded + before.uploading)
-        if (!added) throw new Error('The portal didn\'t accept the pictures automatically. Use "Save pictures to a folder" in VoucherFlow and drag them in by hand.')
+        if (!added) {
+          const err = new Error('The portal didn\'t accept the pictures automatically. Please send the details below to support. Meanwhile use "Save pictures to a folder" in VoucherFlow and drag them in by hand.')
+          err.details = diagnose()
+          throw err
+        }
         // Wait until every picture added so far says "Uploaded" (up to 5 minutes per group).
         const target = i + part.length
         const finished = await waitFor(() => {
@@ -125,7 +201,10 @@
       await sleep(1500)
       askToSubmit(done, account)
     } catch (e) {
-      show(`<div style="color:#b91c1c"><b>Stopped:</b> ${e.message}</div>${btn('vf-retry', 'Try again')}${btn('vf-drop', 'Cancel this upload', false)}`)
+      show(`<div style="color:#b91c1c"><b>Stopped:</b> ${e.message}</div>
+        ${e.details ? `<textarea readonly style="width:100%;height:90px;font:11px monospace;margin-top:6px">${e.details.replace(/</g, '&lt;')}</textarea>${btn('vf-copy', 'Copy details', false)}` : ''}
+        ${btn('vf-retry', 'Try again')}${btn('vf-drop', 'Cancel this upload', false)}`)
+      on('vf-copy', () => navigator.clipboard.writeText(e.details).then(() => { box.querySelector('#vf-copy').textContent = 'Copied ✓' }))
       on('vf-retry', () => { running = false; location.reload() })
       on('vf-drop', async () => { await chrome.runtime.sendMessage({ type: 'update-job', id: job.id, patch: { state: 'cancelled' } }); box.remove() })
     } finally {
@@ -134,7 +213,24 @@
   }
 
   function askToSubmit(done, account) {
-    show(`✓ <b>${done} of ${job.count}</b> picture(s) uploaded and Continue clicked.<br><br>
+    const rows = readPortalRows()
+    const { mine, others, mismatches, ours } = compareWithJob(rows)
+    const bad = (t) => `<div style="color:#b91c1c;margin-top:6px">${t}</div>`
+    let check = ''
+    if (rows.length) {
+      check += `<div style="margin-top:6px">The portal lists <b>${mine.length}</b> of this submission's ${job.count} voucher(s).</div>`
+      if (mismatches.length) {
+        check += bad(`⚠ ${mismatches.length} differ from VoucherFlow: ` + mismatches.map((r) => {
+          const f = ours.get(r.fileName)
+          return `${f.voucher_number}: portal read ${r.number || '?'}${r.amount != null ? ` / £${r.amount}` : ''} (VoucherFlow £${f.amount})`
+        }).join('; ') + ' — correct them on the portal before submitting.')
+      }
+      const flagged = mine.filter((r) => r.problem)
+      if (flagged.length) check += bad(`⚠ The portal flags ${flagged.length} of them: ${flagged.map((r) => r.problem).join('; ')}`)
+      if (others.length) check += bad(`⚠ ${others.length} other voucher(s) are also waiting under "For Submission" (not from this submission${others.some((r) => r.problem) ? ', some marked "already submitted"' : ''}). Delete or untick them on the portal so only this submission is sent.`)
+      if (!mismatches.length && !others.length && mine.length === job.count) check += `<div style="color:#15803d;margin-top:6px">✓ Numbers and amounts match VoucherFlow.</div>`
+    }
+    show(`✓ <b>${done} of ${job.count}</b> picture(s) uploaded and Continue clicked.${check}<br>
       <b>Now check the portal's screen</b> (e.g. enter the date of any post-dated voucher), then click the portal's <b>Submit</b> button.<br><br>
       When the portal has confirmed it:${btn('vf-done', 'I submitted — tell VoucherFlow')}${btn('vf-later', 'Not now', false)}`)
     on('vf-done', () => finish(done, account))
