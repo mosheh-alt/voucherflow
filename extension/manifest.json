@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "VoucherFlow uploader",
+  "version": "0.1.0",
+  "description": "Uploads VoucherFlow submissions to voucher company portals (AAC). You log in yourself; it adds the pictures, waits for them to upload and stops before Submit.",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": [
+    "https://charities.achisomoch.org/*",
+    "https://*.supabase.co/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://voucherflow.pages.dev/*", "https://*.voucherflow.pages.dev/*"],
+      "js": ["app-bridge.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://charities.achisomoch.org/*"],
+      "js": ["aac.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": { "128": "icon128.png" }
+}

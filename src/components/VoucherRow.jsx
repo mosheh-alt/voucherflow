@@ -450,6 +450,9 @@ const VoucherRow = forwardRef(function VoucherRow(
             <span className="flag bad" title={v.ai_data.error}>AI couldn't read it — use Re-read barcodes ▾ → Read with AI</span>
           )}
           {aiFilled.length > 0 && <span className="flag ai-flag" title="Filled in by AI — please check against the picture">AI – check</span>}
+          {v.submission_id && v.status === 'valid' && (
+            <Link className="flag info" to={`/submissions/${v.submission_id}`}>In a submission — not sent yet</Link>
+          )}
           {v.status === 'pending' && v.ai_data?.valid_months > 0 && (
             <span className="flag bad" title="The AI found a stamp or note on the voucher with a different validity">
               Stamp: valid for {v.ai_data.valid_months} month{v.ai_data.valid_months === 1 ? '' : 's'}

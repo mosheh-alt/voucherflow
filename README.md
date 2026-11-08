@@ -48,6 +48,7 @@ Run each update file in `supabase/` once, in number order, the same way as the s
 - `016_marked_places.sql` — places people mark on the picture (📍) to teach the AI where details are
 - `017_picture_previews.sql` — tiny previews of every voucher picture in the database, so pictures show at once for everyone
 - `018_voucher_validity.sql` — a voucher's own validity (stamps like "VALID FOR 3 MONTHS")
+- `019_submissions.sql` — submissions (one send of vouchers to one company); used by the Chrome add-on in `extension/`
 - `fix_missing_columns.sql` — catch-up: adds anything from 004–008 that is missing
 
 ### 1c. AI reading function

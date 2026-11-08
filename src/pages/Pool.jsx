@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { createSubmission } from '../lib/submissions.js'
 import { supabase, fetchAll, signedUrls } from '../lib/supabase.js'
 import { METHOD_LABELS, STATUS_LABELS, date, money, today } from '../lib/format.js'
 import { downloadCSV } from '../lib/csv.js'
@@ -34,6 +35,20 @@ function chunks(list, size) {
 
 export default function Pool() {
   const { session, can } = useAuth()
+  const navigate = useNavigate()
+
+  // Puts the selected ready vouchers of one company into a new submission and opens it.
+  async function prepareSubmission() {
+    const ids = [...new Set(selectedRows.map((r) => r.company_id))]
+    if (ids.length !== 1) { setError('Select vouchers from one company only — each company is sent separately.'); return }
+    try {
+      const { submission, skipped } = await createSubmission({ company: companyById[ids[0]], vouchers: selectedRows, userId: session.user.id })
+      if (skipped) setNotice(`${skipped} selected voucher(s) left out (not valid yet, or already in a submission).`)
+      navigate(`/submissions/${submission.id}`)
+    } catch (e) {
+      setError(e)
+    }
+  }
   const [params, setParams] = useSearchParams()
   const view = VIEWS[params.get('view')] ? params.get('view') : 'ready'
   const companyFilter = params.get('company') || ''
@@ -210,7 +225,8 @@ export default function Pool() {
           <button className="btn" onClick={() => setSelected(new Set(shown.map((r) => r.id)))} disabled={!shown.length}>Select all {shown.length}</button>
           <button className="btn" onClick={() => setSelected(new Set())} disabled={!selected.size}>Clear</button>
           <span className="spacer" />
-          {['ready', 'post_dated', 'all'].includes(view) && <button className="btn primary" disabled={!selected.size} onClick={() => setAction('sent')}>Mark as sent…</button>}
+          {['ready', 'all'].includes(view) && <button className="btn primary" disabled={!selected.size} onClick={prepareSubmission} title="Group the selected vouchers into one send to their company (e.g. an upload to the AAC portal)">Prepare submission…</button>}
+          {['ready', 'post_dated', 'all'].includes(view) && <button className="btn" disabled={!selected.size} onClick={() => setAction('sent')}>Mark as sent…</button>}
           {['sent', 'received', 'all'].includes(view) && <button className="btn" disabled={!selected.size} onClick={() => setAction('received')}>Mark received…</button>}
           {['sent', 'received', 'all'].includes(view) && <button className="btn" disabled={!selected.size} onClick={() => setAction('rejected')}>Mark rejected…</button>}
           {['sent', 'received', 'all'].includes(view) && <button className="btn" disabled={!selected.size} onClick={() => setAction('paid')}>Mark paid…</button>}
