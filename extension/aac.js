@@ -54,7 +54,44 @@
   }
 
   // ---------- getting the pictures from VoucherFlow ----------
+  // AAC's guide: JPEG, PNG or PDF only, up to 10 MB each, landscape, front side, one voucher per picture.
+  const MAX_BYTES = 9.5 * 1024 * 1024
+  const notes = { converted: [], shrunk: [], portrait: [] }
+  async function fitAacRules(file, f) {
+    const okType = /^(image\/jpeg|image\/png|application\/pdf)$/.test(file.type)
+    if (file.type === 'application/pdf') return file
+    let bitmap
+    try { bitmap = await createImageBitmap(file) } catch { return file }
+    try {
+      if (bitmap.height > bitmap.width) notes.portrait.push(f.voucher_number || f.name)
+      if (okType && file.size <= MAX_BYTES) return file
+      // Convert (e.g. WebP) or shrink to a JPEG the portal accepts.
+      let scale = 1
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.round(bitmap.width * scale)
+        canvas.height = Math.round(bitmap.height * scale)
+        const ctx = canvas.getContext('2d')
+        ctx.fillStyle = '#fff'
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+        ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+        const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.9))
+        if (blob && blob.size <= MAX_BYTES) {
+          ;(okType ? notes.shrunk : notes.converted).push(f.voucher_number || f.name)
+          return new File([blob], f.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' })
+        }
+        scale *= 0.75
+      }
+      throw new Error(`The picture of voucher ${f.voucher_number} is too large for the portal (over 10 MB).`)
+    } finally {
+      if (typeof bitmap.close === 'function') bitmap.close()
+    }
+  }
+
   async function getFile(f) {
+    return fitAacRules(await download(f), f)
+  }
+  async function download(f) {
     try {
       const res = await fetch(f.url)
       if (res.ok) { const b = await res.blob(); return new File([b], f.name, { type: b.type || 'image/jpeg' }) }
@@ -142,9 +179,12 @@
     }
     return rows
   }
-  function compareWithJob(rows) {
+  function compareWithJob(rowsIn) {
+    let rows = rowsIn
     const bare = (x) => String(x || '').replace(/^0+/, '')
-    const ours = new Map(job.files.map((f) => [f.name, f]))
+    const base = (n) => String(n).replace(/\.[^.]+$/, '')
+    const ours = new Map(job.files.map((f) => [base(f.name), f]))
+    rows = rows.map((r) => ({ ...r, fileName: base(r.fileName) }))
     const mine = rows.filter((r) => ours.has(r.fileName))
     const others = rows.filter((r) => !ours.has(r.fileName))
     const mismatches = mine.filter((r) => {
@@ -200,8 +240,7 @@
       if (!cont) throw new Error(`All ${done} picture(s) uploaded, but the Continue button didn't become available. Click Continue yourself, then Submit.`)
       cont.click()
       // Wait until the portal lists this submission's vouchers under "For Submission".
-      const names = new Set(job.files.map((f) => f.name))
-      await waitFor(() => readPortalRows().filter((r) => names.has(r.fileName)).length >= job.count, 20000, 500)
+      await waitFor(() => compareWithJob(readPortalRows()).mine.length >= job.count, 20000, 500)
       askToSubmit(done, account)
     } catch (e) {
       show(`<div style="color:#b91c1c"><b>Stopped:</b> ${e.message}</div>
@@ -232,6 +271,9 @@
       }).join('; ') + '. Correct the number on the portal first.')
     }
     if (flagged.length) check += bad(`⚠ The portal flags ${flagged.length}: ${flagged.map((r) => `${ours.get(r.fileName).voucher_number} — ${r.problem}`).join('; ')}. These will not be ticked.`)
+    if (notes.converted.length) check += `<div style="margin-top:6px">ℹ ${notes.converted.length} picture(s) converted to JPEG (the portal takes JPEG, PNG or PDF).</div>`
+    if (notes.shrunk.length) check += `<div style="margin-top:6px">ℹ ${notes.shrunk.length} picture(s) made smaller to stay under the portal's 10 MB limit.</div>`
+    if (notes.portrait.length) check += bad(`⚠ ${notes.portrait.length} picture(s) are upright (portrait), AAC asks for landscape: ${notes.portrait.join(', ')}. Check the portal read them correctly.`)
     if (others.length) check += `<div class="muted" style="margin-top:6px">${others.length} other voucher(s) are waiting under "For Submission" — they will be left unticked and not sent.</div>`
     const good = mine.filter((r) => !r.problem)
     if (!good.length) {
@@ -254,8 +296,33 @@
     on('vf-later', () => box.remove())
   }
 
+  // AAC's guide: "Enter the amount (for open vouchers)". Where the portal left an amount box empty
+  // and lets you type in it, the amount checked in VoucherFlow is filled in.
+  function fillAmounts(good) {
+    const filled = []
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+    for (const r of good) {
+      const f = ours(r)
+      if (f.amount == null) continue
+      const box = [...r.row.querySelectorAll('input:not([type=checkbox])')].find((i) => /£|amount/i.test(`${i.placeholder} ${i.name} ${i.id} ${i.className}`))
+      if (!box || box.disabled || box.readOnly || (box.value || '').trim()) continue
+      box.focus()
+      setValue.call(box, String(Number(f.amount)))
+      box.dispatchEvent(new Event('input', { bubbles: true }))
+      box.dispatchEvent(new Event('change', { bubbles: true }))
+      box.blur()
+      filled.push(`${f.voucher_number} £${Number(f.amount).toFixed(2)}`)
+    }
+    return filled
+  }
+
   async function openSubmit(good, account) {
     try {
+      const filledAmounts = fillAmounts(good)
+      if (filledAmounts.length) {
+        show(`ℹ Filled in the amount of ${filledAmounts.length} open voucher(s) from VoucherFlow: ${filledAmounts.join(', ')}.`)
+        await sleep(2500)
+      }
       // Only this submission's vouchers are ticked: untick everything else.
       const keep = new Set(good.map((r) => r.check))
       for (const r of readPortalRows()) {
@@ -302,7 +369,7 @@
       setTimeout(() => manualSubmit(good.length, account), 4000)
     }
   }
-  const ours = (r) => job.files.find((f) => f.name === r.fileName) || {}
+  const ours = (r) => job.files.find((f) => f.name.replace(/\.[^.]+$/, '') === String(r.fileName).replace(/\.[^.]+$/, '')) || {}
   const escapeHtml = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
 
   async function confirmAndSubmit(dialog, count, account) {
@@ -336,6 +403,11 @@
     const r = await chrome.runtime.sendMessage({ type: 'get-job' })
     job = r?.job
     if (!job || job.state === 'cancelled') return
+    if (job.company && !/AAC|Achisomoch/i.test(job.company)) {
+      show(`Submission <b>#${job.no}</b> is for <b>${job.company}</b>, not AAC — it can't be uploaded here.${btn('vf-drop', 'Cancel this upload', false)}`)
+      on('vf-drop', async () => { await chrome.runtime.sendMessage({ type: 'update-job', id: job.id, patch: { state: 'cancelled' } }); box.remove() })
+      return
+    }
     if (job.state === 'uploaded') { askToSubmit(job.count, portalAccount()); return }
     if (isLoginPage()) {
       show(`Submission <b>#${job.no}</b> (${job.count} picture(s), ${money(job.total)}) is waiting.<br><br><b>Log in</b> with the right Charity ID — the upload continues after that.`)
