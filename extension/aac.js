@@ -132,12 +132,13 @@
       let row = nameBox.parentElement
       while (row && row.querySelectorAll('input').length < 3) row = row.parentElement
       if (!row) continue
-      const values = [...row.querySelectorAll('input')].map((i) => (i.value || i.placeholder || '').trim())
+      // Only real values: the portal shows grey placeholders (e.g. "£5", a default date) that mean nothing.
+      const values = [...row.querySelectorAll('input:not([type=checkbox])')].map((i) => (i.value || '').trim())
       const number = values.find((v) => /^\d{5,}$/.test(v)) || null
       const amountText = values.find((v) => /£\s*\d/.test(v)) || ''
       const amount = amountText ? Number(amountText.replace(/[^\d.]/g, '')) : null
       const around = `${row.previousElementSibling?.innerText || ''} ${row.innerText || ''}`
-      rows.push({ fileName, number, amount, problem: /already submitted|error|invalid/i.test(around) ? around.trim().split('\n')[0].slice(0, 120) : null })
+      rows.push({ row, check: row.querySelector('input[type=checkbox]'), fileName, number, amount, problem: /already submitted|error|invalid/i.test(around) ? around.trim().split('\n')[0].slice(0, 120) : null })
     }
     return rows
   }
@@ -198,7 +199,9 @@
       const cont = await waitFor(() => { const b = byText('button,a,input[type=submit]', /^continue$/i); return b && !b.disabled ? b : null }, 20000)
       if (!cont) throw new Error(`All ${done} picture(s) uploaded, but the Continue button didn't become available. Click Continue yourself, then Submit.`)
       cont.click()
-      await sleep(1500)
+      // Wait until the portal lists this submission's vouchers under "For Submission".
+      const names = new Set(job.files.map((f) => f.name))
+      await waitFor(() => readPortalRows().filter((r) => names.has(r.fileName)).length >= job.count, 20000, 500)
       askToSubmit(done, account)
     } catch (e) {
       show(`<div style="color:#b91c1c"><b>Stopped:</b> ${e.message}</div>
@@ -212,37 +215,119 @@
     }
   }
 
+  // After Continue: check the portal's list against VoucherFlow, then (when you say so) tick only
+  // this submission's vouchers and open the portal's Submit window.
   function askToSubmit(done, account) {
     const rows = readPortalRows()
     const { mine, others, mismatches, ours } = compareWithJob(rows)
     const bad = (t) => `<div style="color:#b91c1c;margin-top:6px">${t}</div>`
-    let check = ''
-    if (rows.length) {
-      check += `<div style="margin-top:6px">The portal lists <b>${mine.length}</b> of this submission's ${job.count} voucher(s).</div>`
-      if (mismatches.length) {
-        check += bad(`⚠ ${mismatches.length} differ from VoucherFlow: ` + mismatches.map((r) => {
-          const f = ours.get(r.fileName)
-          return `${f.voucher_number}: portal read ${r.number || '?'}${r.amount != null ? ` / £${r.amount}` : ''} (VoucherFlow £${f.amount})`
-        }).join('; ') + ' — correct them on the portal before submitting.')
-      }
-      const flagged = mine.filter((r) => r.problem)
-      if (flagged.length) check += bad(`⚠ The portal flags ${flagged.length} of them: ${flagged.map((r) => r.problem).join('; ')}`)
-      if (others.length) check += bad(`⚠ ${others.length} other voucher(s) are also waiting under "For Submission" (not from this submission${others.some((r) => r.problem) ? ', some marked "already submitted"' : ''}). Delete or untick them on the portal so only this submission is sent.`)
-      if (!mismatches.length && !others.length && mine.length === job.count) check += `<div style="color:#15803d;margin-top:6px">✓ Numbers and amounts match VoucherFlow.</div>`
+    const flagged = mine.filter((r) => r.problem)
+    const missing = job.count - mine.length
+    let check = `<div style="margin-top:6px">The portal lists <b>${mine.length}</b> of this submission's ${job.count} voucher(s).</div>`
+    if (missing > 0) check += bad(`⚠ ${missing} of them are not in the portal's list.`)
+    if (mismatches.length) {
+      check += bad(`⚠ The portal read ${mismatches.length} differently: ` + mismatches.map((r) => {
+        const f = ours.get(r.fileName)
+        return `${f.voucher_number} → portal ${r.number || '?'}${r.amount != null ? ` / £${r.amount}` : ''}`
+      }).join('; ') + '. Correct the number on the portal first.')
     }
-    show(`✓ <b>${done} of ${job.count}</b> picture(s) uploaded and Continue clicked.${check}<br>
-      <b>Now check the portal's screen</b> (e.g. enter the date of any post-dated voucher), then click the portal's <b>Submit</b> button.<br><br>
-      When the portal has confirmed it:${btn('vf-done', 'I submitted — tell VoucherFlow')}${btn('vf-later', 'Not now', false)}`)
+    if (flagged.length) check += bad(`⚠ The portal flags ${flagged.length}: ${flagged.map((r) => `${ours.get(r.fileName).voucher_number} — ${r.problem}`).join('; ')}. These will not be ticked.`)
+    if (others.length) check += `<div class="muted" style="margin-top:6px">${others.length} other voucher(s) are waiting under "For Submission" — they will be left unticked and not sent.</div>`
+    const good = mine.filter((r) => !r.problem)
+    if (!good.length) {
+      show(`✓ ${done} picture(s) uploaded.${check}${bad('Nothing from this submission can be submitted.')}${btn('vf-later', 'Close', false)}`)
+      on('vf-later', () => box.remove())
+      return
+    }
+    show(`✓ <b>${done} of ${job.count}</b> picture(s) uploaded and Continue clicked.${check}
+      ${!mismatches.length && !flagged.length && !missing ? '<div style="color:#15803d;margin-top:6px">✓ Voucher numbers match VoucherFlow.</div>' : ''}
+      <div style="margin-top:8px">Next: tick <b>only these ${good.length}</b> voucher(s) and open the portal's Submit window.</div>
+      ${btn('vf-tick', `Tick ${good.length} & open Submit`)}${btn('vf-manual', 'I\'ll do it myself', false)}`)
+    on('vf-tick', () => openSubmit(good, account))
+    on('vf-manual', () => manualSubmit(done, account))
+  }
+
+  function manualSubmit(done, account) {
+    show(`Tick this submission's vouchers on the portal, click <b>Submit vouchers</b>, confirm and submit.<br>When the portal says they were submitted successfully:
+      ${btn('vf-done', 'I submitted — tell VoucherFlow')}${btn('vf-later', 'Not now', false)}`)
     on('vf-done', () => finish(done, account))
     on('vf-later', () => box.remove())
   }
 
-  async function finish(done, account) {
+  async function openSubmit(good, account) {
+    try {
+      // Only this submission's vouchers are ticked: untick everything else.
+      const keep = new Set(good.map((r) => r.check))
+      for (const r of readPortalRows()) {
+        if (!r.check) continue
+        const want = keep.has(r.check) || good.some((g) => g.fileName === r.fileName)
+        if (r.check.checked !== want) r.check.click()
+      }
+      await sleep(500)
+      const counter = (document.body.innerText.match(/(\d+)\s*\/\s*(\d+)\s*ready vouchers selected/i) || [])
+      if (counter[1] && Number(counter[1]) !== good.length) {
+        throw new Error(`The portal shows ${counter[1]} voucher(s) selected, but this submission has ${good.length}. Please tick them yourself.`)
+      }
+      const submitBtn = byText('button,a', /^submit vouchers$/i)
+      if (!submitBtn) throw new Error('Couldn\'t find the "Submit vouchers" button at the bottom of the list.')
+      submitBtn.scrollIntoView({ block: 'center' })
+      submitBtn.click()
+      const dialog = await waitFor(() => [...document.querySelectorAll('div,section,form')]
+        .filter((el) => visible(el) && /Submit Vouchers for Processing/i.test(el.innerText || '') && el.querySelectorAll('input[type=checkbox]').length >= 2)
+        .sort((a, b) => (a.innerText || '').length - (b.innerText || '').length)[0], 8000)
+      if (!dialog) throw new Error('The portal\'s Submit window didn\'t open.')
+      // The two statements are yours to confirm: they are shown here word for word.
+      // Each tick box's own sentence (the nearest block around it that holds just that sentence).
+      const statements = [...dialog.querySelectorAll('input[type=checkbox]')].map((c) => {
+        let el = c.closest('label') || c.parentElement
+        while (el && el !== dialog && (el.innerText || '').trim().length < 20) el = el.parentElement
+        const t = (el?.innerText || '').trim()
+        return t.length < 400 ? t : ''
+      })
+      const lines = (dialog.innerText || '').split('\n').map((t) => t.trim()).filter(Boolean)
+      const bank = statements.find((t) => /bank account/i.test(t) && !/charitable/i.test(t)) || lines.find((t) => /bank account/i.test(t)) || ''
+      const purpose = statements.find((t) => /charitable purposes/i.test(t) && !/bank account/i.test(t)) || lines.find((t) => /charitable purposes/i.test(t)) || ''
+      const total = good.reduce((t, r) => t + Number(ours(r).amount || 0), 0)
+      show(`The portal asks you to confirm, for <b>${good.length}</b> voucher(s) (VoucherFlow total <b>${money(total)}</b>):
+        <ol style="padding-left:18px;margin:6px 0">
+          <li>${escapeHtml(bank)}</li>
+          <li>${escapeHtml(purpose)}</li>
+        </ol>
+        Check the bank account is ours. If both are right:
+        ${btn('vf-confirm', 'I confirm both — Submit')}${btn('vf-stop', 'Stop here', false)}`)
+      on('vf-confirm', () => confirmAndSubmit(dialog, good.length, account))
+      on('vf-stop', () => manualSubmit(good.length, account))
+    } catch (e) {
+      show(`<div style="color:#b91c1c"><b>Stopped:</b> ${e.message}</div>`)
+      setTimeout(() => manualSubmit(good.length, account), 4000)
+    }
+  }
+  const ours = (r) => job.files.find((f) => f.name === r.fileName) || {}
+  const escapeHtml = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+
+  async function confirmAndSubmit(dialog, count, account) {
+    try {
+      for (const c of dialog.querySelectorAll('input[type=checkbox]')) if (!c.checked) c.click()
+      await sleep(400)
+      const go = await waitFor(() => { const b = [...dialog.querySelectorAll('button,a,input[type=submit]')].find((el) => visible(el) && /^submit$/i.test((el.innerText || el.value || '').trim())); return b && !b.disabled ? b : null }, 5000)
+      if (!go) throw new Error('The portal\'s Submit button didn\'t become available — please tick and submit in the portal window.')
+      show(`Submitting ${count} voucher(s)…`)
+      go.click()
+      const ok = await waitFor(() => /submitted successfully/i.test(document.body.innerText || ''), 30000, 500)
+      if (!ok) throw new Error('No confirmation from the portal yet. If it says "submitted successfully", click the button below.')
+      await finish(count, account, true)
+    } catch (e) {
+      show(`<div style="color:#b91c1c"><b>Stopped:</b> ${e.message}</div>`)
+      setTimeout(() => manualSubmit(count, account), 4000)
+    }
+  }
+
+  async function finish(done, account, confirmed = false) {
     await chrome.runtime.sendMessage({
       type: 'finish-job',
-      result: { id: job.id, submitted: true, uploaded: done, account, reference: `AAC portal${account ? ` ${account}` : ''} ${new Date().toISOString().slice(0, 10)}` },
+      result: { id: job.id, submitted: true, uploaded: done, account, confirmed, reference: `AAC portal${account ? ` ${account}` : ''} ${new Date().toISOString().slice(0, 10)}` },
     })
-    show(`✓ Done. VoucherFlow will mark submission <b>#${job.no}</b> as sent (open or switch to its VoucherFlow tab).${btn('vf-close', 'Close', false)}`)
+    show(`✓ ${confirmed ? 'The portal confirmed: <b>submitted successfully</b>.' : 'Recorded.'} VoucherFlow will mark submission <b>#${job.no}</b> as sent (switch to its VoucherFlow tab).${btn('vf-close', 'Close', false)}`)
     on('vf-close', () => box.remove())
   }
 

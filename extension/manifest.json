@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "VoucherFlow uploader",
-  "version": "0.2.0",
-  "description": "Uploads VoucherFlow submissions to voucher company portals (AAC). You log in yourself; it adds the pictures, waits for them to upload and stops before Submit.",
+  "version": "0.3.0",
+  "description": "Uploads VoucherFlow submissions to the AAC charity portal. You log in yourself; it adds the pictures, waits for them to upload, checks them against VoucherFlow, ticks only that submission and submits after you confirm.",
   "permissions": [
     "storage",
     "tabs"

@@ -164,7 +164,7 @@ function SubmissionDetail({ id }) {
             <li>
               <strong>Automatic upload with the VoucherFlow add-on</strong>{' '}
               {addon ? <span className="flag ok-flag">add-on installed (v{addon})</span> : <span className="flag warn">add-on not found in this browser</span>}
-              <div className="muted small">Opens the portal, adds all the pictures, waits until each one is uploaded, clicks Continue — and stops before Submit for you to check and submit.</div>
+              <div className="muted small">Opens the portal, adds all the pictures, waits until each one is uploaded, clicks Continue, checks the voucher numbers against VoucherFlow, ticks only this submission — and submits once you confirm the portal's two statements.</div>
               <button className="btn primary" disabled={!addon || Boolean(busy) || !vouchers.length} onClick={startAddonUpload}>Upload with the add-on</button>
             </li>
             <li>
