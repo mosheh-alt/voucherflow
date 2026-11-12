@@ -1,0 +1,75 @@
+/* Toirem Management – the staff side (same look as Toirem Donations).
+   The public application form and the agreement keep Toirem's printed-form look. */
+@import url("https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap");
+body.mgmt{
+  --navy:#083D67; --navy-deep:#052B4A; --navy-soft:#E6EEF5; --paper:#F5F7F9; --surface:#FFFFFF;
+  --mink:#17212B; --mink-2:#4A5866; --mline:#DCE3EA; --r-s:6px; --r-m:10px;
+  --ui:'Atkinson Hyperlegible',system-ui,-apple-system,'Segoe UI',sans-serif;
+  background:var(--paper); color:var(--mink); font:15px/1.5 var(--ui); padding:0; margin:0;
+}
+.mgmt [hidden]{display:none!important}
+/* sign-in */
+.mgmt .login{max-width:400px;margin:12vh auto;background:var(--surface);border:1px solid var(--mline);border-radius:var(--r-m);padding:28px}
+@media (max-width:440px){.mgmt .login{margin:8vh 16px}}
+.mgmt .login h1{margin:0 0 4px;color:var(--navy-deep);font-size:26px;font-weight:700;letter-spacing:0}
+.mgmt .login p{color:var(--mink-2);margin:0 0 18px}
+.lfield{display:flex;flex-direction:column;gap:4px;margin-bottom:14px}
+.lfield label{font-weight:700;font-size:14px}
+.lfield input{font:inherit;padding:9px 11px;border:1px solid #C4D0DC;border-radius:var(--r-s);background:#fff;color:var(--mink)}
+.lfield input:focus{outline:3px solid #7FB2DD;outline-offset:1px;border-color:var(--navy)}
+.lerr{color:#B42318;font-weight:700;min-height:1.5em;margin:8px 0 0}
+.mbtn{font:inherit;font-weight:700;cursor:pointer;border-radius:var(--r-s);padding:10px 14px;border:1px solid var(--mline);background:var(--surface);color:var(--mink)}
+.mbtn.primary{background:var(--navy);border-color:var(--navy);color:#fff;width:100%}
+.mbtn.primary:hover{background:var(--navy-deep)}
+/* shell */
+.mapp{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
+.mgmt .side{background:var(--navy);color:#fff;padding:22px 14px;display:flex;flex-direction:column;gap:2px;position:sticky;top:0;height:100vh}
+.mgmt .brand{padding:0 10px 14px}
+.mgmt .brand b{display:block;font-size:20px;letter-spacing:.01em}
+.mgmt .brand span{color:#B9CDE0;font-size:13px}
+.navhead{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:#8FB0CC;padding:16px 12px 4px;font-weight:700}
+.mgmt .navlink{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:var(--r-s);cursor:pointer;color:#DCE7F1}
+.mgmt .navlink:hover{background:rgba(255,255,255,.08);color:#fff}
+.mgmt .navlink:focus-visible{outline:3px solid #7FB2DD}
+.mgmt .navlink[aria-current="page"]{background:#fff;color:var(--navy);font-weight:700}
+.mgmt .navlink.ext::after{content:"\2197";font-size:12px;opacity:.7}
+.mgmt .side .spacer{flex:1}
+.mgmt .side .who{font-size:12px;color:#B9CDE0;padding:10px 12px 2px;word-break:break-all}
+.mmain{padding:28px 36px 60px;min-width:0;max-width:1060px}
+.mhead{display:flex;align-items:center;justify-content:space-between;gap:12px 16px;flex-wrap:wrap;margin-bottom:20px}
+.mgmt .mhead h1{margin:0;color:var(--navy-deep);font-size:26px;line-height:1.2;letter-spacing:0;font-weight:700}
+.mright{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mref{font-weight:700;color:var(--mink-2);font-variant-numeric:tabular-nums}
+.mgmt a.btn{text-decoration:none;border:1px solid var(--mline);background:var(--surface);padding:8px 14px;border-radius:var(--r-s);font-weight:700;color:var(--navy);white-space:nowrap}
+@media (max-width:860px){
+  .mapp{grid-template-columns:1fr}
+  .mgmt .side{position:static;height:auto;flex-direction:row;flex-wrap:wrap;padding:10px max(10px,env(safe-area-inset-right,0px)) 10px max(10px,env(safe-area-inset-left,0px));gap:4px}
+  .mgmt .brand{width:100%;padding:4px 8px}
+  .navhead{width:100%;padding:6px 8px 0}
+  .mgmt .side .spacer,.mgmt .side .who{display:none}
+  .mmain{padding:18px max(16px,env(safe-area-inset-right,0px)) 60px max(16px,env(safe-area-inset-left,0px))}
+}
+/* office content in the management palette (documents inside keep their own look) */
+.mgmt .mmain{color:var(--mink)}
+.mgmt .mmain .primary{background:var(--navy);color:#fff}
+.mgmt .mmain .primary:hover{background:var(--navy-deep)}
+.mgmt .mmain .ghost{border-color:var(--mline);color:var(--navy);background:var(--surface)}
+.mgmt .mmain button{font-family:var(--ui)}
+.mgmt .panel{background:var(--surface);border-color:var(--mline)}
+.mgmt .panel>h3,.mgmt .mmain h2{color:var(--navy-deep)}
+.mgmt .tile{background:var(--surface);border:1px solid var(--mline)}
+.mgmt .tile[aria-pressed=true]{border:2px solid var(--navy)}
+.mgmt .tile b{color:var(--navy-deep)}
+.mgmt .list{background:var(--surface)}
+.mgmt .list th{color:var(--mink-2);border-bottom:1px solid var(--mline);font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+.mgmt .list td{border-bottom-color:var(--mline);padding-left:10px}
+.mgmt .list th{padding-left:10px}
+.mgmt .list tr.click:hover td{background:var(--navy-soft)}
+.mgmt .list .org{color:var(--mink)}
+.mgmt .kv dt{color:var(--mink-2)}
+.mgmt .lab{color:var(--mink-2)}
+.mgmt .mmain input:focus,.mgmt .mmain select:focus,.mgmt .mmain textarea:focus{border-bottom-color:var(--navy)}
+.mgmt .back,.mgmt .link{color:var(--navy)}
+.mgmt .req{color:#B42318}
+.mgmt .tbl{background:transparent}
+.mgmt .login .lerr{color:#B42318}

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Grant applications · Toirem Management</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23083D67'/%3E%3Ctext x='16' y='22' font-family='Arial' font-weight='700' font-size='17' fill='white' text-anchor='middle'%3ET%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/grants/grants.css">
+<link rel="stylesheet" href="/grants/mgmt.css">
+<script src="/config.js"></script>
+</head>
+<body class="mgmt">
+<div class="login" id="login" hidden>
+  <h1>Toirem Management</h1>
+  <p>Sign in to continue.</p>
+  <form id="loginForm">
+    <div class="lfield"><label for="lEmail">Email</label><input id="lEmail" type="email" autocomplete="username" required></div>
+    <div class="lfield"><label for="lPass">Password</label><input id="lPass" type="password" autocomplete="current-password" required></div>
+    <button class="mbtn primary" id="loginGo" type="submit">Sign in</button>
+    <p class="lerr" id="loginMsg" role="alert"></p>
+  </form>
+</div>
+
+<div class="mapp" id="shell" hidden>
+  <nav class="side" aria-label="Main">
+    <div class="brand"><b>Toirem</b><span>Management</span></div>
+    <div class="navhead">Donations</div>
+    <a class="navlink" href="/#inbox">Inbox</a>
+    <a class="navlink" href="/#prepare">Receipts to prepare</a>
+    <a class="navlink" href="/#receipts">Receipts</a>
+    <a class="navlink" href="/#settings">Settings</a>
+    <div class="navhead">Compliance</div>
+    <a class="navlink" href="/grants/office.html#" aria-current="page">Grant applications</a>
+    <a class="navlink ext" href="/grants/apply.html" target="_blank" rel="noopener">Application form</a>
+    <div class="spacer"></div>
+    <div class="who" id="who"></div>
+    <button class="navlink" type="button" id="signout">Sign out</button>
+  </nav>
+  <main class="mmain"><div id="app"><p class="loading">Loading…</p></div></main>
+</div>
+<noscript><p style="padding:20px">This page needs JavaScript switched on.</p></noscript>
+<script type="module" src="/grants/js/office.js"></script>
+</body>
+</html>
