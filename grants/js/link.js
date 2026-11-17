@@ -12,10 +12,10 @@ const thanks = (text) => { app().innerHTML = frame('Your Grant', null, notice('o
 let L = null;
 
 async function start() {
-  if (!['sign', 'breakdown', 'proof', 'receipts'].includes(kind) || !token) { app().innerHTML = expired(); return; }
+  if (!['sign', 'breakdown', 'proof', 'receipts', 'receipt'].includes(kind) || !token) { app().innerHTML = expired(); return; }
   L = await postJSON('link', { kind, token });
   if (!L.ok) { app().innerHTML = L.message && !/expired/i.test(L.message) ? frame('Your Grant', null, notice('bad', esc(L.message))) : expired(); return; }
-  ({ sign, breakdown, proof, receipts })[kind]();
+  ({ sign, breakdown, proof, receipts, receipt: donationReceipt })[kind]();
 }
 
 /* ---------- sign the agreement ---------- */
@@ -164,3 +164,38 @@ function receipts() {
 // Opening a second emailed link in the same tab only changes the part after #, so load it fresh.
 window.addEventListener('hashchange', () => location.reload());
 start();
+
+/* ---------- receipt(s) for Toirem's donations: several files, and the link stays open to add more ---------- */
+function donationReceipt() {
+  const q = L.request;
+  let files = [], msg = '', sentNow = 0;
+  const draw = () => {
+    app().innerHTML = frame('Your Grant', esc(L.ref), `<h2>Receipts for Toirem's donations</h2>
+      <p>Between ${fmtD(q.from)} and ${fmtD(q.to)} Toirem donated <b>${money(q.total)}</b> to ${esc(L.orgName)}:</p>
+      ${q.payments.length ? `<ul class="note">${q.payments.map((p) => `<li>${fmtD(p.date)}: ${money(p.amount)}</li>`).join('')}</ul>` : ''}
+      <p>Please upload your receipt(s) confirming you received these donations, on your organisation's letterhead, showing your charity name and number, the amounts and the dates.
+        You can choose several files at once, and come back to this link to add more.</p>
+      ${q.sent.length ? notice('ok', `Already received: ${q.sent.map(esc).join(', ')}`) : ''}
+      <div class="grid" style="margin-top:10px">${fileField('rfile', 'Receipts', files.map((f) => f.name), 'PDF or photos, up to 10 MB each – choose one or more', { multiple: true })}</div>
+      ${files.length ? `<button class="link" type="button" id="clear">Clear the chosen files</button>` : ''}
+      ${msg ? `<div style="margin-top:12px">${notice('bad', esc(msg))}</div>` : ''}
+      <div class="actions"><button class="primary" type="button" id="go">${files.length > 1 ? `Send ${files.length} receipts` : 'Send receipt'}</button></div>`);
+    // Choosing again adds to the list (people often pick files one at a time).
+    $('#rfile').addEventListener('change', (e) => { const add = [...e.target.files].filter((f) => !files.some((x) => x.name === f.name && x.size === f.size)); if (add.length) { files = [...files, ...add]; msg = ''; draw(); } });
+    const c = $('#clear'); if (c) c.addEventListener('click', () => { files = []; draw(); });
+    $('#go').addEventListener('click', async () => {
+      if (!files.length) { msg = 'Choose your receipt(s) to upload.'; return draw(); }
+      const big = files.find((f) => f.size > 10 * 1024 * 1024); if (big) { msg = big.name + ' is over 10 MB.'; return draw(); }
+      const fd = new FormData(); fd.set('token', token); files.forEach((f) => fd.append('file', f));
+      $('#go').disabled = true; $('#go').textContent = 'Uploading…';
+      const r = await postForm('donation-receipt', fd);
+      if (!r.ok) { msg = r.message || "We couldn't upload your receipts. Please try again."; return draw(); }
+      sentNow += r.count; q.sent = [...q.sent, ...files.map((f) => f.name)]; files = [];
+      app().innerHTML = frame('Your Grant', esc(L.ref), notice('ok', `Thank you. ${sentNow === 1 ? 'Your receipt has' : sentNow + ' receipts have'} been sent to Toirem.`) +
+        '<div class="actions"><button class="ghost" type="button" id="more">Upload more receipts</button></div>');
+      scrollTo(0, 0);
+      $('#more').addEventListener('click', draw);
+    });
+  };
+  draw();
+}

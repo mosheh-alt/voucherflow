@@ -26,6 +26,10 @@ export function createDb(env) {
     one: async (query) => { const r = await rest(query); return Array.isArray(r) ? r[0] || null : r; },
     insert: (table, rows, { returning = true } = {}) =>
       rest(table, { method: 'POST', body: rows, prefer: returning ? 'return=representation' : 'return=minimal' }),
+    /** Insert or, where the key already exists, update (table needs a unique key named in onConflict). */
+    upsert: (table, rows, onConflict) =>
+      rest(table + '?on_conflict=' + encodeURIComponent(onConflict), { method: 'POST', body: rows, prefer: 'resolution=merge-duplicates,return=minimal' }),
+    remove: (table, filter) => rest(table + '?' + filter, { method: 'DELETE', prefer: 'return=representation' }),
     update: (table, filter, patch) => rest(table + '?' + filter, { method: 'PATCH', body: patch, prefer: 'return=representation' }),
 
     /** Upload a File/Blob to the private "grant-files" bucket. */
@@ -62,6 +66,16 @@ const encodePath = (p) => p.split('/').map(encodeURIComponent).join('/');
 export function newToken() {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+/**
+ * A link token that stays the same for one item (e.g. one breakdown request), so reminder emails can repeat the
+ * same link instead of replacing it. Made with a key only the server knows; the database still stores only its hash.
+ */
+export async function stableToken(env, kind, id) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode('toirem-links|' + String(env.SUPABASE_SECRET_KEY || env.CRON_SECRET || '')),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(kind + ':' + id)));
+  return btoa(String.fromCharCode(...sig)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 export async function hashToken(token) {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(token || '')));

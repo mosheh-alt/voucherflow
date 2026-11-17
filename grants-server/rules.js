@@ -6,6 +6,9 @@ export const totalPaid = (g) => Math.round(g.payments.reduce((s, p) => s + p.amo
 export function statusOf(g, threshold = DEFAULT_AGREEMENT_THRESHOLD) {
     if (g.openAlerts > 0)
         return "Needs attention";
+    // Past grants brought in from the campaign export wait for the recipient to complete the pre-filled form.
+    if (g.imported && !g.completed)
+        return g.completeSent ? "Awaiting details" : "Details to complete";
     if (g.approvedAmount == null)
         return "New application";
     if (needsAgreement(g.approvedAmount, threshold) && g.agreement?.status !== "signed")

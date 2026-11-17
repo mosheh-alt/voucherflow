@@ -40,7 +40,7 @@ body.mgmt{
 .mgmt .mhead h1{margin:0;color:var(--navy-deep);font-size:26px;line-height:1.2;letter-spacing:0;font-weight:700}
 .mright{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .mref{font-weight:700;color:var(--mink-2);font-variant-numeric:tabular-nums}
-.mgmt a.btn{text-decoration:none;border:1px solid var(--mline);background:var(--surface);padding:8px 14px;border-radius:var(--r-s);font-weight:700;color:var(--navy);white-space:nowrap}
+.mgmt a.btn,.mgmt label.btn{text-decoration:none;border:1px solid var(--mline);background:var(--surface);padding:8px 14px;border-radius:var(--r-s);font-weight:700;color:var(--navy);white-space:nowrap}
 @media (max-width:860px){
   .mapp{grid-template-columns:1fr}
   .mgmt .side{position:static;height:auto;flex-direction:row;flex-wrap:wrap;padding:10px max(10px,env(safe-area-inset-right,0px)) 10px max(10px,env(safe-area-inset-left,0px));gap:4px}
@@ -73,3 +73,12 @@ body.mgmt{
 .mgmt .req{color:#B42318}
 .mgmt .tbl{background:transparent}
 .mgmt .login .lerr{color:#B42318}
+
+.mgmt .ncount{margin-left:auto;background:#e8521c;color:#fff;border-radius:999px;font-size:11.5px;font-weight:700;padding:1px 8px;min-width:20px;text-align:center}
+.mgmt .msg{border-bottom:1px solid var(--mline);padding:12px 10px;cursor:pointer;display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:4px 12px;align-items:start}
+.mgmt .msg:hover{background:#f6f8fb}
+.mgmt .msg.unread .who,.mgmt .msg.unread .subj{font-weight:700;color:var(--navy)}
+.mgmt .msg .dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#e8521c;margin-top:6px}
+.mgmt .msg .subj{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mgmt .msg .when{font-size:12.5px;color:#6b7280;white-space:nowrap}
+.mgmt .msgbody{grid-column:2/4;white-space:pre-wrap;background:#fafbfd;border:1px solid var(--mline);border-radius:8px;padding:12px 14px;margin-top:6px;font-size:14px;cursor:auto;overflow-wrap:anywhere}

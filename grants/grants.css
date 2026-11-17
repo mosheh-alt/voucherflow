@@ -165,3 +165,12 @@ a{color:var(--ink)}
 /* rows of short fields: inputs line up even when a label wraps */
 .grid.aligned>.f:not(.full){display:grid;grid-row:span 3;grid-template-rows:subgrid;row-gap:2px;align-content:start}
 .grid.aligned>.f:not(.full)>.lab{align-self:end}
+.declare p{font-style:italic;color:var(--text);margin:6px 0;line-height:1.5}
+
+/* Google address lookup (shown only when it loads) */
+.addr-slot{grid-column:1/-1}
+.addr-slot:empty{display:none}
+.addr-find{display:flex;flex-direction:column;gap:6px;margin:4px 0 6px}
+.addr-find .lab{font-weight:700;font-size:13.5px;color:var(--ink)}
+.addr-find .opt{font-weight:400;color:var(--text)}
+.addr-find gmp-place-autocomplete{width:100%;max-width:100%;box-sizing:border-box;color-scheme:light;border:1px solid var(--line);border-radius:6px;background:#fff}

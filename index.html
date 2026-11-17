@@ -1,12 +1,406 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>VoucherFlow</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Toirem Management</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23083D67'/%3E%3Ctext x='16' y='22' font-family='Arial' font-weight='700' font-size='17' fill='white' text-anchor='middle'%3ET%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Libre+Caslon+Text:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy: #083D67;
+    --navy-deep: #052B4A;
+    --navy-soft: #E6EEF5;
+    --paper: #F5F7F9;
+    --surface: #FFFFFF;
+    --ink: #17212B;
+    --ink-2: #4A5866;
+    --line: #DCE3EA;
+    --sent: #23774A;   --sent-bg: #E3F2E9;
+    --wait: #8A5A00;   --wait-bg: #FFF3D6;
+    --err: #B42318;    --err-bg: #FDE7E5;
+    --old: #5B6673;    --old-bg: #EDF0F3;
+    --info: #1F5C8C;   --info-bg: #E6F0F8;
+    --radius-s: 6px;
+    --radius-m: 10px;
+    --ui: 'Atkinson Hyperlegible', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --slip: 'Libre Caslon Text', Georgia, 'Times New Roman', serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--paper); color: var(--ink); font: 15px/1.5 var(--ui); }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  :focus-visible { outline: 3px solid #7FB2DD; outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+  /* ---------- shell ---------- */
+  [hidden] { display: none !important; }
+  .app { display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; }
+  .side { background: var(--navy); color: #fff; padding: 22px 14px; display: flex; flex-direction: column; gap: 4px; position: sticky; top: 0; height: 100vh; }
+  .brand { padding: 0 10px 20px; }
+  .brand b { display: block; font-size: 20px; letter-spacing: .01em; }
+  .brand span { color: #B9CDE0; font-size: 13px; }
+  .nav { all: unset; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-radius: var(--radius-s); cursor: pointer; color: #DCE7F1; }
+  .nav:hover { background: rgba(255,255,255,.08); color: #fff; }
+  .nav[aria-current="page"] { background: #fff; color: var(--navy); font-weight: 700; }
+  .nav .count { min-width: 24px; text-align: center; font-size: 12px; font-weight: 700; padding: 1px 7px; border-radius: 99px; background: rgba(255,255,255,.16); }
+  .nav[aria-current="page"] .count { background: var(--navy-soft); }
+  .nav .count.alert { background: #F5B840; color: #3A2700; }
+  .navhead { font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #8FB0CC; padding: 16px 12px 4px; font-weight: 700; }
+  .navlink { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: var(--radius-s); color: #DCE7F1; text-decoration: none; }
+  .navlink:hover { background: rgba(255,255,255,.08); color: #fff; }
+  .side .spacer { flex: 1; }
+  .likely { margin-top: 12px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius-s); background: var(--wait-bg, #FFF7E0); white-space: normal; }
+  .searchbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .searchbar .search { flex: 1; min-width: 220px; }
+  .searchbar select { font: inherit; padding: 9px 10px; border-radius: var(--radius-s); border: 1px solid var(--line); background: var(--surface); }
+  .statuses { display: grid; gap: 8px; margin-bottom: 14px; }
+  .gsearch { margin: 6px 0 10px; padding: 9px 11px; border-radius: var(--radius-s); border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.1); color: #fff; font: inherit; width: 100%; box-sizing: border-box; }
+  .gsearch::placeholder { color: #B9CDE0; }
+  .gsearch:focus { outline: 2px solid #8FB8DE; background: rgba(255,255,255,.16); }
+  .side .who { font-size: 12px; color: #B9CDE0; padding: 10px; word-break: break-all; }
+  .side a.sheet { color: #DCE7F1; font-size: 13px; padding: 4px 10px; }
+
+  main { padding: 28px 36px 60px; min-width: 0; }
+  .head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+  .head h1 { margin: 0; font-size: 28px; line-height: 1.15; color: var(--navy-deep); }
+  .head p { margin: 4px 0 0; color: var(--ink-2); max-width: 64ch; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* ---------- buttons ---------- */
+  .btn { border: 1px solid var(--line); background: var(--surface); padding: 8px 14px; border-radius: var(--radius-s); cursor: pointer; font-weight: 700; white-space: nowrap; }
+  .btn:hover { border-color: #AFC0D0; }
+  .btn.primary { background: var(--navy); border-color: var(--navy); color: #fff; }
+  .btn.primary:hover { background: var(--navy-deep); }
+  .btn.send { background: var(--sent); border-color: var(--sent); color: #fff; }
+  .btn.ghost { border-color: transparent; background: transparent; color: var(--navy); }
+  .btn.small { padding: 4px 10px; font-size: 14px; }
+  .btn[disabled] { opacity: .5; cursor: default; }
+
+  /* ---------- desk (home) ---------- */
+  .todo { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-m); overflow: hidden; max-width: 860px; }
+  .todo-item { display: flex; align-items: center; gap: 16px; padding: 16px 20px; border-top: 1px solid var(--line); }
+  .todo-item:first-child { border-top: 0; }
+  .todo-item .n { font-size: 26px; font-weight: 700; min-width: 2ch; text-align: right; font-variant-numeric: tabular-nums; }
+  .todo-item .t { flex: 1; }
+  .todo-item .t small { display: block; color: var(--ink-2); }
+  .todo-item.done .n { color: var(--sent); }
+  .todo-empty { padding: 26px 20px; color: var(--sent); font-weight: 700; }
+  .month { margin: 26px 0 10px; color: var(--ink-2); max-width: 860px; }
+  .month strong { color: var(--ink); }
+  h2 { font-size: 18px; margin: 28px 0 10px; color: var(--navy-deep); }
+
+  /* ---------- tables ---------- */
+  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .search { flex: 1; min-width: 200px; max-width: 360px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-s); background: var(--surface); }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius-s); overflow: hidden; background: var(--surface); }
+  .seg button { border: 0; background: transparent; padding: 7px 12px; cursor: pointer; border-left: 1px solid var(--line); }
+  .seg button:first-child { border-left: 0; }
+  .seg button[aria-pressed="true"] { background: var(--navy-soft); color: var(--navy); font-weight: 700; }
+  .settabs { margin-bottom: 18px; flex-wrap: wrap; }
+  .settabs button { padding: 9px 14px; }
+  .card p { max-width: 72ch; }
+  .table-wrap { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-m); overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { font-size: 13px; color: var(--ink-2); font-weight: 700; background: #FAFBFC; position: sticky; top: 0; }
+  tr:last-child td { border-bottom: 0; }
+  tbody tr.click { cursor: pointer; }
+  tbody tr.click:hover { background: #F7FAFD; }
+  tbody tr.sel { background: var(--navy-soft); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.date { white-space: nowrap; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  td .sub { display: block; font-size: 13px; color: var(--ink-2); }
+  .ref { font-variant-numeric: tabular-nums; font-weight: 700; }
+  td.bankref { font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; word-break: break-all; max-width: 190px; }
+  .noref { color: var(--err); font-size: 13px; font-weight: 700; }
+  .more { padding: 12px; text-align: center; }
+  .empty { padding: 30px; text-align: center; color: var(--ink-2); }
+  input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--navy); }
+  select.type { padding: 5px 8px; border-radius: var(--radius-s); border: 1px solid var(--line); background: var(--surface); }
+  select.type.choose { border-color: #E3B341; background: var(--wait-bg); }
+  .bulk { position: sticky; bottom: 16px; margin-top: 14px; display: none; align-items: center; gap: 12px; background: var(--navy-deep); color: #fff; padding: 10px 14px; border-radius: var(--radius-m); width: fit-content; box-shadow: 0 6px 20px rgba(5,43,74,.25); }
+  .bulk.on { display: flex; }
+  .bulk .btn:not(.send):not(.ghost) { color: var(--navy-deep); }
+
+  /* ---------- status pills ---------- */
+  .pill { display: inline-block; font-size: 13px; font-weight: 700; padding: 2px 9px; border-radius: 99px; white-space: nowrap; }
+  .pill.sent { background: var(--sent-bg); color: var(--sent); }
+  .pill.wait { background: var(--wait-bg); color: var(--wait); }
+  .pill.error { background: var(--err-bg); color: var(--err); }
+  .pill.old { background: var(--old-bg); color: var(--old); }
+  .pill.info, .pill.busy, .pill.none { background: var(--info-bg); color: var(--info); }
+  .pill.daf { background: #EFE8FA; color: #5A3E8C; }
+
+  /* ---------- drawer ---------- */
+  .scrim { position: fixed; inset: 0; background: rgba(23,33,43,.35); display: none; z-index: 20; }
+  .scrim.on { display: block; }
+  .drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(560px, 100vw); background: var(--surface); z-index: 21; transform: translateX(100%); transition: transform .22s ease; display: flex; flex-direction: column; box-shadow: -10px 0 30px rgba(5,43,74,.18); }
+  .drawer.on { transform: none; }
+  .drawer header { padding: 18px 22px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .drawer header h3 { margin: 0; font-size: 20px; color: var(--navy-deep); }
+  .drawer header p { margin: 2px 0 0; color: var(--ink-2); font-size: 14px; }
+  .drawer .body { padding: 18px 22px; overflow-y: auto; flex: 1; }
+  .drawer footer { padding: 14px 22px; border-top: 1px solid var(--line); display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; background: #FAFBFC; }
+  .close { border: 0; background: transparent; font-size: 24px; line-height: 1; cursor: pointer; color: var(--ink-2); padding: 4px 8px; }
+  .status-box { border-radius: var(--radius-s); padding: 10px 12px; margin-bottom: 16px; font-size: 14px; }
+  .status-box.sent { background: var(--sent-bg); } .status-box.wait { background: var(--wait-bg); }
+  .status-box.error { background: var(--err-bg); } .status-box.old { background: var(--old-bg); }
+  .status-box.info, .status-box.busy, .status-box.none { background: var(--info-bg); }
+
+  /* the receipt slip – the one decorative element */
+  .slip { font-family: var(--slip); border: 1px solid #C9D6E2; border-top: 6px solid var(--navy); border-radius: 4px; padding: 18px 20px 16px; margin-bottom: 18px; background:
+          repeating-linear-gradient(0deg, transparent 0 27px, #EEF3F7 27px 28px), #FFFEFB; color: #10283E; }
+  .slip .top { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; color: var(--ink-2); }
+  .slip .top b { font-size: 16px; color: var(--navy); letter-spacing: .02em; }
+  .slip .who { font-size: 21px; margin: 12px 0 2px; line-height: 1.25; }
+  .slip .amt { font-size: 26px; font-weight: 700; color: var(--navy); }
+  .slip .words { font-style: italic; color: #34506A; font-size: 14px; }
+  .slip .meth { margin-top: 10px; font-size: 13px; display: flex; gap: 14px; flex-wrap: wrap; }
+  .slip .meth span::before { content: '☐ '; }
+  .slip .meth span.on::before { content: '☒ '; color: var(--navy); }
+  .slip .changed { margin-top: 10px; font-family: var(--ui); font-size: 13px; color: var(--wait); font-weight: 700; }
+
+  .field { margin-bottom: 14px; }
+  details.fix { border: 1px solid var(--line); border-radius: var(--radius-m); padding: 10px 14px; margin-bottom: 16px; background: #FAFBFC; }
+  details.fix summary { cursor: pointer; font-weight: 700; color: var(--navy); }
+  details.fix[open] summary { margin-bottom: 8px; }
+  .field label { display: block; font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+  .field .hint { font-size: 13px; color: var(--ink-2); margin-top: 3px; }
+  .field input, .field select, .field textarea { width: 100%; padding: 9px 11px; border: 1px solid #C4D0DC; border-radius: var(--radius-s); background: #fff; }
+  .field textarea { min-height: 150px; resize: vertical; }
+  .field input[type=checkbox] { width: 18px; padding: 0; margin: 0 8px 0 0; vertical-align: -3px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+  dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 6px 0 0; font-size: 14px; }
+  dl.facts dt { color: var(--ink-2); }
+  dl.facts dd { margin: 0; word-break: break-word; }
+
+  /* ---------- dialogs ---------- */
+  dialog { border: 0; border-radius: var(--radius-m); padding: 0; width: min(520px, 94vw); box-shadow: 0 20px 50px rgba(5,43,74,.3); }
+  dialog::backdrop { background: rgba(23,33,43,.4); }
+  dialog form { padding: 22px; }
+  dialog h3 { margin: 0 0 4px; color: var(--navy-deep); font-size: 20px; }
+  dialog p.lead { margin: 0 0 16px; color: var(--ink-2); }
+  dialog .row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; flex-wrap: wrap; }
+  .drop { border: 2px dashed #B7C8D8; border-radius: var(--radius-m); padding: 22px; text-align: center; background: #F8FAFC; }
+  .result { white-space: pre-wrap; background: var(--paper); border-radius: var(--radius-s); padding: 10px 12px; margin-top: 12px; font-size: 14px; display: none; }
+
+  /* ---------- settings ---------- */
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 18px 20px; margin-bottom: 18px; max-width: 760px; }
+  .card h2 { margin-top: 0; }
+  .mrow { display: grid; grid-template-columns: 1fr 180px 36px; gap: 8px; margin-bottom: 6px; }
+  .mrow input, .mrow select { padding: 7px 9px; border: 1px solid #C4D0DC; border-radius: var(--radius-s); }
+
+  /* ---------- busy + messages ---------- */
+  .busy { position: fixed; inset: 0; background: rgba(245,247,249,.75); display: none; z-index: 40; align-items: center; justify-content: center; }
+  .busy.on { display: flex; }
+  .busy div { background: var(--surface); border: 1px solid var(--line); padding: 18px 24px; border-radius: var(--radius-m); font-weight: 700; display: flex; gap: 12px; align-items: center; box-shadow: 0 8px 26px rgba(5,43,74,.15); }
+  .spin { width: 20px; height: 20px; border: 3px solid var(--navy-soft); border-top-color: var(--navy); border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .msg { position: fixed; left: 50%; top: 18px; transform: translateX(-50%); z-index: 50; max-width: min(640px, 92vw); display: none; padding: 12px 16px; border-radius: var(--radius-m); background: var(--navy-deep); color: #fff; white-space: pre-wrap; box-shadow: 0 8px 26px rgba(5,43,74,.3); }
+  .msg.on { display: block; }
+  .msg.bad { background: var(--err); }
+  .msg button { margin-left: 12px; background: transparent; border: 1px solid rgba(255,255,255,.5); color: #fff; border-radius: 4px; cursor: pointer; }
+  .queue { position: fixed; right: 20px; bottom: 20px; z-index: 45; display: none; align-items: center; gap: 10px;
+           background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--navy); padding: 10px 14px;
+           border-radius: var(--radius-m); box-shadow: 0 8px 26px rgba(5,43,74,.18); font-weight: 700; font-size: 14px; }
+  .queue.on { display: flex; }
+  .fatal { max-width: 640px; margin: 80px auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 26px; }
+
+  /* ---------- small screens ---------- */
+  @media (max-width: 860px) {
+    .app { grid-template-columns: 1fr; }
+    .side { position: static; height: auto; flex-direction: row; flex-wrap: wrap; padding: 10px; gap: 4px; }
+    .brand { padding: 4px 8px; width: 100%; }
+    .navhead { width: 100%; padding: 6px 8px 0; }
+    .side .spacer, .side .who, .side a.sheet { display: none; }
+    main { padding: 18px 16px 60px; }
+    .grid2 { grid-template-columns: 1fr; }
+    .hide-s { display: none; }
+  }
+
+  .pill.past { background: #EFE8FA; color: #5A3E8C; }
+  .progress{margin-top:14px}.progress .bar{height:10px;border-radius:6px;background:var(--line);overflow:hidden}
+  .progress .bar span{display:block;height:100%;width:0;background:var(--navy);transition:width .3s}
+  .progress .ptext{margin-top:6px;font-size:14px;color:var(--ink-2)}
+  .payers input.pin{width:100%;min-width:140px;padding:6px 8px;border:1px solid #C4D0DC;border-radius:6px;font:inherit}
+  input.pin{padding:6px 8px;border:1px solid #C4D0DC;border-radius:6px;font:inherit}
+  .payers td{vertical-align:top}.payers .meta{font-size:13px;color:var(--ink-2)}
+  .bulk select{font:inherit;padding:4px 6px;border-radius:6px}
+  .login{max-width:400px;margin:12vh auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-m);padding:28px}
+  .login h1{margin:0 0 4px;color:var(--navy-deep);font-size:26px}.login p{color:var(--ink-2);margin:0 0 18px}
+  a.btn{text-decoration:none;color:inherit;display:inline-block}
+  .login .err{color:var(--err);font-weight:700;min-height:1.5em;margin:8px 0 0}
+
+  /* ---------- home ---------- */
+  .home-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; margin-top: 6px; }
+  .hcard { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-m); padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .hcard .htop { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .hcard h2 { margin: 0; font-size: 20px; color: var(--navy-deep); }
+  .hcard .htag { font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-2); font-weight: 700; }
+  .hcard .hsum { margin: 0; color: var(--ink-2); font-size: 14px; }
+  .hstats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .hstat { display: block; text-align: left; border: 1px solid var(--line); border-radius: var(--radius-s); padding: 10px 12px; background: var(--paper); cursor: pointer; text-decoration: none; color: inherit; }
+  .hstat:hover { border-color: var(--navy); }
+  .hstat b { display: block; font-size: 24px; line-height: 1.2; color: var(--navy-deep); font-variant-numeric: tabular-nums; }
+  .hstat span { font-size: 13px; color: var(--ink-2); }
+  .hstat.warn { background: var(--wait-bg); border-color: #F0D9A0; } .hstat.warn b { color: var(--wait); }
+  .hstat.bad { background: var(--err-bg); border-color: #F5C2BC; } .hstat.bad b { color: var(--err); }
+  .hstat.zero b { color: #9AA6B2; }
+  .hcard .hgo { align-self: flex-start; margin-top: auto; }
+  .hcard .hnote { font-size: 13px; color: var(--ink-2); margin: 0; }
+</style>
+</head>
+<body>
+<div class="login" id="login" hidden>
+  <h1>Toirem Management</h1>
+  <p>Sign in to continue.</p>
+  <form id="loginForm">
+    <div class="field"><label for="lEmail">Email</label><input id="lEmail" type="email" autocomplete="username" required></div>
+    <div class="field"><label for="lPass">Password</label><input id="lPass" type="password" autocomplete="current-password" required></div>
+    <button class="btn primary" id="loginGo" type="submit" style="width:100%">Sign in</button>
+    <p class="err" id="loginMsg" role="alert"></p>
+  </form>
+</div>
+
+<div class="app" id="app" hidden>
+  <nav class="side" aria-label="Main">
+    <div class="brand"><b>Toirem</b><span>Management</span></div>
+    <input class="gsearch" id="gsearch" type="search" placeholder="Search all donations…" aria-label="Search all donations by donor, campaign, amount, date or receipt number" autocomplete="off">
+    <button class="nav" data-view="home">Home</button>
+    <div class="navhead">Donations</div>
+    <button class="nav" data-view="inbox">Inbox <span class="count" id="c-inbox"></span></button>
+    <button class="nav" data-view="prepare">Receipts to prepare <span class="count" id="c-prepare"></span></button>
+    <button class="nav" data-view="receipts">Receipts <span class="count" id="c-receipts" style="display:none"></span></button>
+    <button class="nav" data-view="settings">Settings</button>
+    <div class="navhead">Compliance</div>
+    <a class="navlink" href="/grants/office.html">Charity grants</a>
+    <a class="navlink" href="/grants/office.html#individuals">Individual grants</a>
+    <a class="navlink" href="/grants/office.html#inbox">Compliance inbox</a>
+    <div class="spacer"></div>
+    <div class="who" id="who"></div>
+  </nav>
+  <main id="main"></main>
+</div>
+<div class="fatal" id="fatal" hidden></div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-modal="true" role="dialog" aria-labelledby="drawerTitle"></aside>
+
+<dialog id="dlgBank">
+  <form method="dialog" onsubmit="return false">
+    <h3 id="bankTitle">Upload bank export</h3>
+    <p class="lead" id="bankLead"></p>
+    <div class="drop"><input type="file" id="bankFile" accept=".csv,.xlsx,text/csv"></div>
+    <div class="field" id="pastFromBox" style="margin-top:14px" hidden><label for="pastFrom">Only payments from</label><input type="date" id="pastFrom">
+      <div class="hint">Set it to the day after your old receipt system stopped, so gifts it already receipted are left out. Leave empty to take the whole file.</div></div>
+    <div class="progress" id="bankProgress" hidden><div class="bar"><span id="bankBar"></span></div><div class="ptext" id="bankPText"></div></div>
+    <div class="result" id="bankResult"></div>
+    <div class="row"><button class="btn" type="button" id="bankClose" onclick="closeBank()">Close</button>
+      <button class="btn" type="button" id="bankStop" hidden onclick="UP.stop=true;this.disabled=true;this.textContent='Stopping after this part…'">Stop</button>
+      <button class="btn primary" type="button" id="bankGo" onclick="uploadBank()">Upload</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlgNew">
+  <form onsubmit="return false" id="newForm">
+    <h3>New donation</h3>
+    <p class="lead">For cheques, cards, cash and anything that didn't come through a bank file.</p>
+    <div class="grid2">
+      <div class="field"><label for="nDate">Date</label><input type="date" id="nDate" required></div>
+      <div class="field"><label for="nAmount">Amount (£)</label><input type="number" id="nAmount" step="0.01" min="0" inputmode="decimal" required></div>
+      <div class="field"><label for="nMethod">Payment method</label><select id="nMethod"></select></div>
+      <div class="field"><label for="nRef">Campaign number</label><input id="nRef" inputmode="numeric" placeholder="Optional"></div>
+    </div>
+    <div class="field"><label for="nName">Donor name</label><input id="nName" list="donorList" autocomplete="off" required><div class="hint">Pick from your donors to fill in the email.</div></div>
+    <div class="field"><label for="nEmail">Donor email</label><input id="nEmail" type="email"></div>
+    <div class="field"><label for="nNote">Note</label><input id="nNote" placeholder="Optional"></div>
+    <div class="row">
+      <button class="btn" type="button" onclick="closeDlg('dlgNew')">Cancel</button>
+      <button class="btn" type="button" onclick="saveNew('make')">Make receipt</button>
+      <button class="btn send" type="button" onclick="saveNew('send')">Make &amp; send receipt</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgImport">
+  <form onsubmit="return false">
+    <h3 id="impTitle">Import</h3>
+    <p class="lead" id="impLead"></p>
+    <div class="drop"><input type="file" id="impFile" accept=".csv,.xlsx,text/csv"></div>
+    <div class="result" id="impResult"></div>
+    <div class="row"><button class="btn" type="button" onclick="closeDlg('dlgImport')">Close</button>
+      <button class="btn primary" type="button" onclick="runImport()">Import</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlgAdd" style="width:min(560px,96vw)">
+  <form onsubmit="return false">
+    <h3>Add to campaign</h3>
+    <p class="lead" id="aWho"></p>
+    <div class="field" style="max-width:220px"><label for="aCampaign">Campaign number</label><input id="aCampaign" inputmode="numeric" maxlength="5" placeholder="5 digits"></div>
+    <div id="aSplitBox">
+    <fieldset class="field" style="border:0;padding:0;margin:0 0 12px"><legend style="font-weight:700;margin-bottom:6px">DAF online donation – amount for this campaign</legend>
+      <label style="display:flex;gap:8px;align-items:center;font-weight:400;margin-bottom:6px;white-space:nowrap"><input type="radio" name="aAmt" value="full" checked onchange="addFormChanged()" style="width:auto"> The full amount, <strong id="aFull"></strong></label>
+      <label style="display:flex;gap:8px;align-items:center;font-weight:400;white-space:nowrap"><input type="radio" name="aAmt" value="part" onchange="addFormChanged()" style="width:auto"> Only part of it: £ <input id="aPart" inputmode="decimal" style="width:120px" oninput="addFormChanged()" onfocus="document.querySelector('input[name=aAmt][value=part]').checked=true;addFormChanged()"></label>
+    </fieldset>
+    <div id="aRestBox" hidden>
+      <div class="grid2">
+        <div class="field"><label for="aRestType">The rest (<span id="aRest"></span>) is</label>
+          <select id="aRestType" onchange="addFormChanged()">
+            <option value="DAF – Vouchers">DAF vouchers (no receipt)</option>
+            <option value="DAF – Donor card">DAF donor card (no receipt)</option>
+            <option value="inbox">Leave it in the Inbox for now</option>
+          </select></div>
+      </div>
+    </div>
+    </div>
+    <div class="row">
+      <button class="btn" type="button" onclick="closeDlg('dlgAdd')">Cancel</button>
+      <button class="btn primary" type="button" onclick="saveAdd()">Add to campaign</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgCombined" style="width:min(820px,96vw)">
+  <form onsubmit="return false">
+    <h3>Combined DAF receipt</h3>
+    <p class="lead">One receipt listing every donation from a DAF in a year or between two dates.</p>
+    <div class="grid2">
+      <div class="field"><label for="cPayer">DAF</label><select id="cPayer" onchange="combinedPayer()"></select></div>
+      <div class="field"><label for="cYear">Period</label><select id="cYear" onchange="combinedYear()"></select></div>
+      <div class="field"><label for="cFrom">From</label><input type="date" id="cFrom" onchange="$('cYear').value='';combinedList()"></div>
+      <div class="field"><label for="cTo">To</label><input type="date" id="cTo" onchange="$('cYear').value='';combinedList()"></div>
+      <div class="field"><label for="cRecipient">Name on the receipt</label><input id="cRecipient"></div>
+      <div class="field"><label for="cEmail">Send to (email)</label><input id="cEmail" type="email" placeholder="The DAF's email"></div>
+    </div>
+    <div id="cList" class="sub">Loading…</div>
+    <div class="row">
+      <button class="btn" type="button" onclick="closeDlg('dlgCombined')">Close</button>
+      <button class="btn" type="button" onclick="combinedMake(false)">Make &amp; view PDF</button>
+      <button class="btn send" type="button" onclick="combinedMake(true)">Make &amp; email</button>
+    </div>
+    <div id="cHist" style="margin-top:14px"></div>
+  </form>
+</dialog>
+
+<dialog id="dlgPdf" style="width:min(900px,96vw)">
+  <form method="dialog" onsubmit="return false" style="padding:16px">
+    <h3 id="pdfTitle">Receipt</h3>
+    <iframe id="pdfFrame" title="Receipt PDF" style="width:100%;height:70vh;border:1px solid var(--line);border-radius:6px"></iframe>
+    <div class="row"><a class="btn" id="pdfDownload" href="#">Download PDF</a><button class="btn primary" type="button" onclick="closeDlg('dlgPdf')">Close</button></div>
+  </form>
+</dialog>
+<datalist id="donorList"></datalist>
+<div class="busy" id="busy" role="status" aria-live="polite"><div><span class="spin"></span><span id="busyText">Working…</span></div></div>
+<div class="msg" id="msg" role="status" aria-live="polite"></div>
+<div class="queue" id="queue" role="status" aria-live="polite"><span class="spin"></span><span id="queueText"></span></div>
+
+<script src="vendor/pdf-lib.min.js"></script>
+<script src="vendor/jszip.min.js"></script>
+<script src="config.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
 </html>

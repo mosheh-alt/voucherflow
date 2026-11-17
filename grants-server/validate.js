@@ -24,11 +24,12 @@ export function validateApplication(input) {
     position: s(a.position, 20), positionOther: s(a.positionOther, 80), same: a.same === true,
     phone: s(a.phone, 40), mobile: s(a.mobile, 40), email: s(a.email, 200),
   };
-  if (!TITLES.includes(app.title)) E['app.title'] = 'Choose a title.';
+  if (app.title && !TITLES.includes(app.title)) E['app.title'] = 'Choose a title from the list.';
   need('app.first', app.first); need('app.last', app.last);
   if (!POSITIONS.includes(app.position)) E['app.position'] = 'Choose a position.';
   if (app.position === 'Other') need('app.positionOther', app.positionOther, 'Please specify the position.');
   if (!app.same) { need('app.phone', app.phone); if (!isEmail(app.email)) E['app.email'] = 'Enter a valid email address.'; }
+  else if (app.email && !isEmail(app.email)) E['app.email'] = 'Enter a valid email address.';
 
   const bank = { bank: s(b.bank, 100), acname: s(b.acname, 100), sort: s(b.sort, 10), acno: s(b.acno, 10) };
   need('bank.bank', bank.bank); need('bank.acname', bank.acname);

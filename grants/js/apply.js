@@ -1,7 +1,7 @@
 /* =====================================================================
    Toirem Grants – public application form (3 steps).
    ===================================================================== */
-import { $, $$, esc, today, frame, notice, field, select, radio, fileField, sigPicker, getJSON, postForm } from './ui.js';
+import { $, $$, esc, today, frame, notice, field, select, radio, fileField, sigPicker, getJSON, postJSON, postForm } from './ui.js';
 
 const POSITIONS = ['Trustee', 'Secretary', 'Volunteer', 'Other'];
 const ROLES = ['Chair', 'Treasurer', 'Secretary', 'Trustee', 'Other'];
@@ -23,10 +23,10 @@ const trusteeNames = () => (S.cc ? S.cc.trustees : S.trustees.map((t) => t.name.
 const errHtml = (k) => (S.errors[k] ? `<span class="err">${esc(S.errors[k])}</span>` : '');
 
 function step1() {
-  let h = `<h2>1) Organisation main or registered address and contact details</h2>
+  let h = `<h2>1) Organisation main or registered address and contact details</h2>` + (S.complete ? '' : `
   <div class="f ${E().registered ? 'invalid' : ''}"><span class="lab">Is your organisation a registered charity in England and Wales? <span class="req">*</span></span>
-  <div class="radios">${radio('reg', 'yes', S.registered === true, 'Yes')}${radio('reg', 'no', S.registered === false, 'No, club or community account')}</div>${errHtml('registered')}</div>`;
-  if (S.registered === true) {
+  <div class="radios">${radio('reg', 'yes', S.registered === true, 'Yes')}${radio('reg', 'no', S.registered === false, 'No, club or community account')}</div>${errHtml('registered')}</div>`);
+  if (S.registered === true && !S.complete) {
     const e = S.errors.charityNumber;
     h += `<div class="ac-wrap ${e ? 'invalid' : ''}" style="margin-top:22px">
       <label class="f" for="charityQ"><span class="lab">Charity name or registered number <span class="req">*</span></span>
@@ -36,7 +36,9 @@ function step1() {
       <div class="ac-list" id="acList" role="listbox" hidden></div>
       ${e ? `<span class="err">${esc(e)}</span>` : '<span class="note">Type 3 or more letters of the name, or the charity number, then choose your charity.</span>'}
     </div>`;
-    if (S.cc) {
+  }
+  if (S.registered === true && S.cc) {
+    {
       const c = S.cc;
       h += `<div style="margin-top:14px">${notice('ok', 'Found on the Charity Commission register. These details come from the register.')}</div>
       <div class="grid" style="margin-top:20px">
@@ -60,6 +62,7 @@ function step1() {
     h += `<div class="grid" style="margin-top:22px">
       ${field('org.name', 'Organisation / club name', o.name, { full: true, errs: E() })}
       <div class="row full">${field('org.postcode', 'Postcode', o.postcode, { ph: 'e.g. N16 6EJ', errs: E() })}<button class="ghost" id="pc" type="button" ${S.busy === 'pc' ? 'disabled' : ''}>${S.busy === 'pc' ? 'Checking…' : 'Check postcode'}</button></div>
+      <div class="addr-slot" id="slot-org"></div>
       ${field('org.line1', 'Full address', o.line1, { full: true, ph: 'House number and street', errs: E() })}
       ${field('org.town', 'City / Town', o.town, { errs: E() })}
       ${field('org.country', 'Country', o.country, { errs: E() })}
@@ -92,13 +95,15 @@ function step2() {
   ${tl.length ? `<div class="grid" style="margin-bottom:20px">${select('isTrustee', 'Are you one of the trustees?', a.trustee,
     [...tl.map((n, i) => ({ value: String(i), label: 'Yes, I am ' + n })), { value: 'none', label: "No, I'm not a trustee" }], { errs: { isTrustee: S.errors.trustee }, full: true })}</div>` : ''}
   <div class="grid">
-    ${select('app.title', 'Title', a.title, TITLES, { errs: E() })}
+    ${select('app.title', 'Title', a.title, TITLES, { errs: E(), req: false })}
     ${field('app.first', 'First name', a.first, { ro: isT, errs: E() })}
     ${field('app.last', 'Last name', a.last, { ro: isT, errs: E() })}
     ${isT ? field('app.posRo', 'Position in organisation', pos, { ro: true }) : `<div class="f">${select('app.position', 'Position in organisation', a.position, POSITIONS, { errs: E() })}
       ${a.position === 'Other' ? `<div style="margin-top:10px">${field('app.positionOther', 'Please specify', a.positionOther, { errs: E() })}</div>` : ''}</div>`}
   </div>
   <label class="tick" style="margin:22px 0 4px"><input type="checkbox" id="same" ${a.same ? 'checked' : ''}> Same contact details as the organisation${orgPhone || orgEmail ? ` (${esc([orgPhone, orgEmail].filter(Boolean).join(', '))})` : ''}</label>
+  ${a.same && !orgEmail ? `<p class="note" style="margin:2px 0 0">The register has no email for this organisation, so please give us an email address.</p>
+  <div class="grid" style="margin-top:12px">${field('app.email', 'Email', a.email, { type: 'email', errs: E() })}</div>` : ''}
   ${a.same ? '' : `<div class="grid" style="margin-top:16px">
     ${field('app.phone', 'Phone', a.phone, { type: 'tel', errs: E() })}
     ${field('app.mobile', 'Mobile', a.mobile, { type: 'tel', req: false, opt: true })}
@@ -121,7 +126,7 @@ function step3() {
   return `<h2>4) Grant information</h2>
   <div class="grid">
     ${field('grant.cost', 'How much does the activity cost in total? (£)', g.cost, { type: 'number', ph: '50000', full: true, errs: E() })}
-    ${field('grant.annual', 'Please estimate the value of annual donations you expect to receive from us (£)', g.annual, { type: 'number', ph: '10000', full: true, errs: E() })}
+    ${field('grant.annual', 'Please estimate the donations you expect to receive from us in the year (1 January – 31 December) (£)', g.annual, { type: 'number', ph: '10000', full: true, errs: E() })}
     ${S.cc && S.cc.objects ? `<div class="objects full"><b>Your charitable objects (from the Charity Commission register)</b>${esc(S.cc.objects)}</div>` : ''}
     ${field('grant.use', 'Please specify how you intend to use the funds received from us', g.use, { area: true, full: true, errs: E() })}
     ${S.registered === false ? fileField('inv', 'Invoices for this grant', S.invoices.map((f) => f.name), 'Upload every invoice you are asking us to fund (up to 8 files).', { multiple: true, errs: E(), errKey: 'invoices' }) : ''}
@@ -147,11 +152,15 @@ function step3() {
 function render() {
   const app = $('#app');
   if (S.done) {
-    app.innerHTML = frame('Grant Application', 'Submitted', notice('ok', `Thank you. Your application has been sent to Toirem. Your reference is <b>${esc(S.done)}</b>, and we've emailed you a confirmation.`));
+    app.innerHTML = frame('Grant Application', 'Submitted', notice('ok', S.complete
+      ? `Thank you. Your details have been sent to Toirem (reference <b>${esc(S.done)}</b>), and we've emailed you a copy.`
+      : `Thank you. Your application has been sent to Toirem. Your reference is <b>${esc(S.done)}</b>, and we've emailed you a confirmation.`));
     return;
   }
+  if (S.linkProblem) { app.innerHTML = frame('Grant Application', null, notice('warn', 'This link has expired or the form has already been completed. If you need help, email <b>info@toirem.org.uk</b>.')); return; }
   const body = S.step === 1 ? step1() : S.step === 2 ? step2() : step3();
   app.innerHTML = frame('Grant Application', `0${S.step}/03`,
+    (S.complete && S.step === 1 ? `<div style="margin-bottom:16px">${notice('ok', `Most of this form is already filled in for <b>${esc(S.cc.name)}</b> from the Charity Commission register. Please check it, complete the rest and sign.`)}</div>` : '') +
     (S.msg ? `<div style="margin-bottom:16px">${notice(S.msg.kind, esc(S.msg.text))}</div>` : '') + body +
     `<div class="nav">${S.step > 1 ? '<button class="ghost" id="back" type="button">Back</button>' : '<span></span>'}
      <button class="primary" id="next" type="button" ${S.busy === 'submit' ? 'disabled' : ''}>${S.step < 3 ? 'Continue' : S.busy === 'submit' ? 'Sending…' : 'Submit application'}</button></div>`);
@@ -202,6 +211,11 @@ function bind() {
   bindTypeahead();
   on('#incorrect', (e) => { S.incorrect = e.target.checked; render(); }, 'change');
   on('#pc', postcode);
+  // Google address lookup (only loads when this address section is on screen).
+  if ($('#slot-org')) import('./address.js').then((m) => m.mountAddressLookup($('#slot-org'), 'org', (a) => {
+    Object.assign(S.org, { line1: [a.line1, a.line2].filter(Boolean).join(', ') || S.org.line1, town: a.town || S.org.town, postcode: a.postcode || S.org.postcode });
+    ['org.line1', 'org.town', 'org.postcode'].forEach((k) => delete S.errors[k]); S.msg = null; render();
+  })).catch(() => {});
   on('#addT', () => { S.trustees.push({ name: '', role: '', other: '' }); render(); });
   $$('[data-rm]').forEach((b) => b.addEventListener('click', () => { S.trustees.splice(+b.dataset.rm, 1); S.errors = {}; render(); }));
   on('#isTrustee', (e) => { pickTrustee(e.target.value); render(); }, 'change');
@@ -210,6 +224,7 @@ function bind() {
   on('#inv', (e) => { S.invoices = [...e.target.files]; delete S.errors.invoices; render(); }, 'change');
   on('#declare', (e) => { S.grant.declare = e.target.checked; delete S.errors['grant.declare']; }, 'change');
   on('#back', () => { S.step--; S.errors = {}; S.msg = null; render(); scrollTo(0, 0); });
+  $$('.nav button').forEach((b) => b.addEventListener('mousedown', (e) => e.preventDefault()));
   on('#next', next);
 }
 
@@ -302,11 +317,11 @@ function validate() {
   }
   if (S.step === 2) {
     if (trusteeNames().length) need('trustee', S.app.trustee, 'Tell us whether you are one of the trustees.');
-    need('app.title', S.app.title, 'Choose a title.'); need('app.first', S.app.first); need('app.last', S.app.last);
+    need('app.first', S.app.first); need('app.last', S.app.last);
     need('app.position', S.app.position, 'Choose a position.');
     if (S.app.position === 'Other') need('app.positionOther', S.app.positionOther, 'Please specify the position.');
     if (!S.app.same) { need('app.phone', S.app.phone); if (!email(S.app.email)) X['app.email'] = 'Enter a valid email address.'; }
-    if (S.app.same && !(S.cc ? S.cc.email : S.org.email)) X['app.email'] = "There's no organisation email to copy. Untick the box and enter yours.";
+    if (S.app.same && !(S.cc ? S.cc.email : S.org.email) && !email(S.app.email)) X['app.email'] = 'Enter a valid email address.';
     need('bank.bank', S.bank.bank); need('bank.acname', S.bank.acname);
     if (!/^\d{2}-?\d{2}-?\d{2}$/.test(S.bank.sort.trim())) X['bank.sort'] = 'Enter 6 digits, e.g. 40-16-15.';
     if (!/^\d{8}$/.test(S.bank.acno.trim())) X['bank.acno'] = 'Enter the 8 digit account number.';
@@ -328,7 +343,12 @@ const stepOf = (k) => (/^(registered|charityNumber|incorrectNote|org\.|t\d)/.tes
 
 async function next() {
   S.errors = validate(); S.msg = null;
-  if (Object.keys(S.errors).length) { render(); $('.err')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+  if (Object.keys(S.errors).length) {
+    render();
+    // Never leave someone stuck: if a problem has no visible field, say it at the top.
+    if (!$('.err')) { S.msg = { kind: 'bad', text: [...new Set(Object.values(S.errors))].join(' ') }; render(); scrollTo(0, 0); return; }
+    $('.err').scrollIntoView({ behavior: 'smooth', block: 'center' }); return;
+  }
   if (S.step < 3) { S.step++; render(); scrollTo(0, 0); return; }
   const a = { ...S.app }; delete a.auto;
   const payload = S.registered
@@ -339,7 +359,8 @@ async function next() {
   fd.set('bankProof', S.bankProof);
   S.invoices.forEach((f) => fd.append('invoices', f));
   S.busy = 'submit'; render();
-  const r = await postForm('submit', fd);
+  if (S.complete) fd.set('token', S.complete.token);
+  const r = await postForm(S.complete ? 'complete' : 'submit', fd);
   S.busy = '';
   if (r.ok) { S.done = r.ref; render(); scrollTo(0, 0); return; }
   if (r.errors) {
@@ -350,4 +371,15 @@ async function next() {
   render(); scrollTo(0, 0);
 }
 
-render();
+/* A link from Toirem's email: complete a pre-filled form for an imported past grant. */
+async function startComplete(token) {
+  S.complete = { token };
+  $('#app').innerHTML = '<p class="loading">Loading your form…</p>';
+  const r = await postJSON('link', { kind: 'complete', token });
+  if (!r.ok) { S.linkProblem = true; return render(); }
+  S.registered = true; S.cc = r.charity; S.charityNumber = r.charity.number; S.q = r.charity.name;
+  S.grant.use = r.purpose || r.charity.activities || '';
+  render();
+}
+const cm = location.hash.match(/^#complete\/(.+)$/);
+if (cm) startComplete(cm[1]); else render();

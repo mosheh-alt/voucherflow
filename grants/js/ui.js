@@ -1,3 +1,4 @@
+import { parseTerms } from '/grants-server/terms.js';
 /* =====================================================================
    Toirem Grants – shared page pieces: fields, signature styles, the submitted
    application and the grant agreement, and calls to /api/grants.
@@ -74,6 +75,18 @@ const PILL = {
 export const pill = (status) => `<span class="pill ${PILL[status] || 'p-grey'}">${esc(status)}</span>`;
 
 /* ---------- the submitted application (office view) ---------- */
+/** The submitted individual application, for the office. */
+export function renderIndividual(a) {
+  const f = a.form, P = f.person, F = f.family, G = f.grant, B = f.bank || {}, N = f.endorser, C = f.confirm;
+  const dl = (rows) => `<dl class="kv">${rows.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v == null || v === '' ? '—' : v)}</dd></div>`).join('')}</dl>`;
+  return `<h2 style="margin-top:0">1) Contact information</h2>${dl([['Name', [P.title, P.first, P.last].filter(Boolean).join(' ')], ['Address', [P.address, P.town, P.postcode].filter(Boolean).join(', ')], ['Phone', P.phone], ['Email', P.email]])}
+  <h2>2–5) Family and finances</h2>${dl([['Marital status', F.status], ['Dependent children', F.children === 'yes' ? 'Yes – ' + F.childrenCount : 'No'], ['Monthly income per person', F.income], ['State benefits', F.benefits === 'yes' ? 'Yes – ' + F.benefitsAmount : 'No']])}
+  <h2>6–7) Grant requested</h2>${dl([['Purpose', G.purposes.map((x) => (x === 'Other' ? 'Other: ' + G.other : x)).join(', ')], ['Amount', money(G.amount) + ' · ' + G.frequency], ['Comments', G.comments]])}
+  <h2>8) Payment</h2>${dl([['Method', f.method], ...(f.method === 'Bank transfer' ? [['Account name', B.acname], ['Sort code', B.sort], ['Account number', B.acno]] : [])])}
+  <h2>9) Endorser</h2>${dl([['Name', N.name], ['Position', N.position], ['Phone', N.phone], ['Email', N.email], ['Address', [N.address, N.town, N.postcode].filter(Boolean).join(', ')]])}
+  <h2>10) Confirmation</h2>${dl([['Name', C.name], ['Date', fmtD(C.date)]])}<div class="sign" style='margin-top:6px;font-family:${sigFont(C.font)}'>${esc(C.sign)}</div>`;
+}
+
 export function renderApplication(a) {
   const f = a.form, c = a.cc_check, ap = f.app, b = f.bank, g = f.grant;
   const sup = !a.registered && a.route === 'supplier';
@@ -95,8 +108,8 @@ export function renderApplication(a) {
   <h2>2) Contact details of the person completing this form / main applicant</h2>${dl([['Title', ap.title], ['First name', ap.first], ['Last name', ap.last], ['Position in organisation', pos],
     ['Phone', ap.same ? orgPhone : ap.phone], ['Mobile', ap.same ? '' : ap.mobile], ['Email', ap.same ? orgEmail : ap.email]])}
   <h2>3) ${sup ? "Supplier's bank account details" : 'Bank account details'}</h2>${dl([['Bank / Building Society', b.bank], ['Name on Account', b.acname], ['Sort Code', b.sort], ['Account Number', b.acno]])}
-  <h2>4) Grant information</h2>${dl([['How much does the activity cost in total?', money(g.cost), true], ['Estimated annual donations from Toirem', money(g.annual), true], ['How the funds will be used', g.use, true]])}
-  <h2>5) Confirmation</h2>${dl([['Name', [ap.title, ap.first, ap.last].join(' ')], ['Date signed', fmtD(g.date)]])}
+  <h2>4) Grant information</h2>${dl([['How much does the activity cost in total?', money(g.cost), true], ['Estimated donations from Toirem for the year (1 January – 31 December)', money(g.annual), true], ['How the funds will be used', g.use, true]])}
+  <h2>5) Confirmation</h2>${dl([['Name', [ap.title, ap.first, ap.last].filter(Boolean).join(' ')], ['Date signed', fmtD(g.date)]])}
   <div class="sign" style='margin-top:12px;font-family:${sigFont(g.font)}'>${esc(g.sign)}</div>`;
   if (c) {
     h += `<div class="office"><h3>For office use only · Charity Commission check</h3><div class="stamp">Checked automatically ${esc(fmtDT(a.cc_checked_at))}</div>
@@ -122,6 +135,18 @@ export function renderApplication(a) {
 }
 
 /* ---------- the grant agreement ---------- */
+/** "Payments made" on the agreement: every payment so far, the total and what is left. */
+function paymentsMade(a) {
+  const P = a.payments || [];
+  const paid = P.reduce((s, p) => s + p.amount, 0);
+  return `<h4 style="margin-top:26px">PAYMENTS MADE</h4>
+  ${P.length ? `<table class="det"><tbody>
+    <tr><td>Date paid</td><td style="font-weight:700;color:#2b3a67;text-align:right">Amount</td></tr>
+    ${P.map((p) => `<tr><td style="font-weight:400;color:inherit">${fmtD(p.date)}</td><td style="text-align:right">${money(p.amount)}</td></tr>`).join('')}
+    <tr><td>Total paid</td><td style="text-align:right;font-weight:700">${money(paid)}</td></tr>
+  </tbody></table>` : '<p>No payments have been made yet.</p>'}`;
+}
+
 export function renderAgreement(a) {
   const r = a.recipient;
   const bankUsed = a.method === 'Bank transfer' || a.method === 'Paid direct to supplier';
@@ -137,33 +162,10 @@ export function renderAgreement(a) {
     <tr><td>Payment Method</td><td>${esc(a.method)}</td></tr>
     <tr><td>Date of Agreement</td><td>${fmtD(a.toirem.date)}</td></tr>
   </tbody></table>
-  <p>Dear ${esc(a.recipientName)},</p>
-  <p>On behalf of Toirem, I am pleased to confirm that the Trustees have approved the grant set out above. This letter sets out the terms on which it is made. By accepting the Grant, you agree to be bound by these terms.</p>
-  <h4>1. USE OF THE GRANT</h4><ol>
-    ${C('1.1', 'The Grant must be used solely for the Purpose stated above.')}
-    ${C('1.2', 'You confirm that all information provided to Toirem is accurate and complete, and that you are in a position to carry out the Purpose.')}
-    ${C('1.3', 'Payment will be made once all required documentation has been received and the Trustees are satisfied that due diligence is complete.')}</ol>
-  <h4>2. RECORDS AND REPORTING</h4><ol>
-    ${C('2.1', 'You must keep all invoices, receipts, and supporting documents relating to the Grant for at least six years from the date of payment.')}
-    ${C('2.2', 'You must provide Toirem with a brief account of how the Grant was spent once the funds have been used if requested.')}</ol>
-  <h4>3. CONDITIONS</h4><ol>
-    ${C('3.1', "You must not assign or transfer the Grant to any other person or organisation without Toirem's prior written agreement.")}
-    ${C('3.2', 'You must comply with all applicable laws in carrying out the Purpose, including those relating to data protection, safeguarding, and financial crime.')}</ol>
-  <h4>4. REPAYMENT</h4><ol>
-    ${C('4.1', `Toirem may require repayment of the Grant in full or in part if:<ul>
-      <li>the Grant is used for purposes other than the Purpose;</li>
-      <li>false or misleading information was provided in connection with the Grant;</li>
-      <li>there is a material breach of these terms which is not remedied within 30 days of notice;</li>
-      <li>you or your organisation become subject to a regulatory or criminal investigation connected to the Grant; or</li>
-      <li>fraud is found to have taken place in connection with the Grant.</li></ul>`)}
-    ${C('4.2', 'You must notify Toirem promptly if any of the above circumstances arise.')}</ol>
-  <h4>5. LIABILITY</h4><ol>${C('5.1', 'Toirem is not liable for any consequences arising from the activities you carry out using the Grant. Our liability under this agreement is limited to the payment of the Grant.')}</ol>
-  <h4>6. CONFIDENTIALITY</h4><ol>${C('6.1', "Neither party may disclose the other's confidential information without prior written agreement, unless required by law or the information is already publicly available.")}</ol>
-  <h4>7. GENERAL</h4><ol>
-    ${C('7.1', 'These terms apply from the date of signing until the Grant has been fully spent and Toirem has confirmed in writing that it is satisfied with your expenditure report.')}
-    ${C('7.2', 'This agreement is governed by the laws of England and Wales and represents the full terms on which this Grant is made.')}</ol>
-  <p style="margin-top:18px">To accept the Grant and agree to these terms, please sign below.</p>
-  <p>Yours sincerely</p>
+  ${parseTerms(a.terms, a.recipientName).map((x) => x.h ? `<h4>${esc(x.h)}</h4>`
+      : x.bullets ? `<ol>${C(x.n, esc(x.text) + (x.bullets.length ? `<ul>${x.bullets.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>` : ''))}</ol>`
+      : `<p>${esc(x.p)}</p>`).join('')}
+  ${a.extra ? `<h4>ADDITIONAL CONDITIONS</h4><p style="white-space:pre-wrap;margin:0">${esc(a.extra)}</p>` : ''}
   <div class="sigs2">
     <div><b>Signed on behalf of Toirem (CIO Foundation)</b>
       <span>Name: <span class="sigline">${esc(a.toirem.name || '—')}</span></span>
@@ -181,5 +183,6 @@ export function renderAgreement(a) {
     <tr><td>Sort Code</td><td>${esc(a.bank.sort)}</td></tr>
     <tr><td>Account Number</td><td>${esc(a.bank.acno)}</td></tr>
     <tr><td>Reference</td><td>${esc(a.ref)}</td></tr>
-  </tbody></table></div>`;
+  </tbody></table>
+  ${paymentsMade(a)}</div>`;
 }

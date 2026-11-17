@@ -1,0 +1,104 @@
+/* =====================================================================
+   Individual Grant Application Form – the look of Toirem's paper form (2026):
+   navy page with a perforated left edge, white sheet, wide-spaced bold headings,
+   light text with underlined answers, light-blue answer circles, logo footer band.
+   (The paper form uses the licensed font "Ezer Shemesh"; Montserrat is the closest web font.)
+   ===================================================================== */
+body.ind {
+  --pn: #2E4563;          /* navy */
+  --pb: #97DAE7;          /* light blue */
+  --po: #E07F56;          /* orange */
+  --pt: #2E4563;
+  --pl: #8a99ad;          /* light text */
+  margin: 0; background: var(--pn); color: var(--pt);
+  font-family: 'Montserrat', 'Segoe UI', Arial, sans-serif; font-weight: 300;
+}
+.ind .pwrap { max-width: 920px; margin: 0 auto; padding: 0 0 0 64px; }
+.ind .paper { position: relative; background: #fff; padding: 34px 52px 40px; min-height: 70vh; }
+/* the perforated (stamp) edge down the left of the sheet */
+.ind .paper::before {
+  content: ""; position: absolute; top: 0; bottom: 0; left: -7px; width: 14px;
+  background: radial-gradient(circle at 7px 7px, #fff 4.6px, transparent 5.2px) 0 0 / 14px 14px repeat-y;
+}
+.ind .ptitle { text-align: center; font-weight: 800; font-size: clamp(22px, 3.6vw, 34px); letter-spacing: .01em; margin: 6px 0 4px; color: var(--pn); }
+.ind .ppage { text-align: center; font-size: 12.5px; color: var(--pl); margin: 0 0 18px; letter-spacing: .08em; text-transform: uppercase; }
+.ind .ph { font-weight: 800; font-size: 19px; letter-spacing: .14em; margin: 30px 0 10px; color: var(--pn); }
+.ind .ph.sm { font-size: 15px; letter-spacing: .02em; margin: 0; }
+.ind .pnote { margin: 4px 0 8px; font-size: 15.5px; }
+.ind .psmall { font-size: 11.5px; color: var(--pl); }
+
+/* inline "Label ________" answers */
+.ind .pl { display: flex; flex-wrap: wrap; gap: 12px 22px; align-items: flex-end; margin: 10px 0; }
+.ind .pl.q { align-items: center; gap: 12px 26px; }
+.ind .pf { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 2px 8px; flex: 1 1 160px; min-width: 0; font-size: 16.5px; margin: 0; }
+.ind .pf > span:first-child { white-space: nowrap; padding-bottom: 3px; }
+.ind .pf input, .ind .pf select {
+  flex: 1 1 60px; min-width: 50px; border: 0; border-bottom: 1.4px solid var(--pn); border-radius: 0; background: transparent;
+  font: inherit; font-weight: 400; color: var(--pn); padding: 3px 4px 2px; outline: none; box-shadow: none; height: auto;
+}
+.ind .pf input:focus, .ind .pf select:focus { border-bottom: 2px solid var(--po); padding-bottom: 1px; }
+.ind .pf.invalid input, .ind .pf.invalid select { border-bottom-color: #c0262d; }
+.ind .perr { flex-basis: 100%; color: #c0262d; font-size: 12.5px; font-weight: 400; margin-top: 2px; }
+
+/* light-blue answer circles (radio buttons and the purpose tick-boxes) */
+.ind .prow { display: flex; flex-wrap: wrap; gap: 10px 34px; align-items: center; margin: 8px 0 4px 2px; font-size: 15.5px; }
+.ind .pr { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; margin: 0; }
+.ind .pr input {
+  appearance: none; -webkit-appearance: none; width: 17px; height: 17px; margin: 0; border-radius: 50%;
+  background: var(--pb); border: 1.5px solid var(--pn); display: inline-grid; place-content: center; cursor: pointer; flex: none;
+}
+.ind .pr input::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--pn); transform: scale(0); transition: transform .1s; }
+.ind .pr input:checked::before { transform: scale(1); }
+.ind .pr input:focus-visible { outline: 2px solid var(--po); outline-offset: 2px; }
+.ind .pgrp.invalid .pr input { border-color: #c0262d; }
+.ind .pl.q > .pgrp { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; }
+.ind .pl.q > .pgrp > .perr { flex-basis: 100%; }
+
+/* ruled comment box */
+.ind textarea.pruled {
+  width: 100%; border: 0; resize: vertical; font: inherit; font-weight: 400; color: var(--pn); padding: 0 4px; line-height: 30px; min-height: 92px; outline: none;
+  background: repeating-linear-gradient(to bottom, transparent 0, transparent 29px, var(--pn) 29px, var(--pn) 30px);
+}
+.ind textarea.pruled:focus { background: repeating-linear-gradient(to bottom, transparent 0, transparent 29px, var(--po) 29px, var(--po) 30px); }
+
+/* documents */
+.ind .pdocs { display: flex; flex-direction: column; gap: 10px; margin: 6px 0 10px 4px; }
+.ind .pdoc { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 16px; }
+.ind .pdoc .pick { all: unset; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--pn); border: 1.4px solid var(--pn); border-radius: 999px; padding: 3px 12px; }
+.ind .pdoc .pick:focus-within, .ind .pdoc .pick:hover { background: var(--pb); }
+.ind .pdoc .got { font-size: 13.5px; font-weight: 400; color: #23774a; }
+.ind .pdoc.invalid .pick { border-color: #c0262d; color: #c0262d; }
+
+.ind .pdecl p { margin: 0 0 8px; font-size: 15.5px; line-height: 1.55; }
+.ind .ptick { display: flex; gap: 8px; align-items: center; margin: 10px 0; font-size: 15.5px; font-weight: 400; }
+.ind .ptick input { width: 18px; height: 18px; accent-color: var(--pn); }
+.ind .psig input { font-size: 26px; font-weight: 400; }
+.ind .sigs { margin-top: 6px; }
+
+/* office use only */
+.ind .poffice { margin-top: 46px; }
+.ind .poffice table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.ind .poffice td { border: 1px solid var(--pn); padding: 7px 8px; height: 22px; color: var(--pn); }
+.ind .poffice tr:last-child td { height: 34px; background: #fafbfd; }
+
+.ind .nav { display: flex; justify-content: space-between; margin-top: 30px; }
+.ind button.primary { background: var(--pn); border-color: var(--pn); }
+.ind button.ghost { color: var(--pn); border-color: var(--pn); }
+.ind .addr-find .lab { color: var(--pn); }
+.ind .status { font-weight: 400; }
+
+/* footer band */
+.ind .pfoot { display: flex; align-items: center; gap: 26px; padding: 20px 28px 26px; color: #fff; }
+.ind .pfoot img { height: 76px; width: auto; flex: none; }
+.ind .pdetails { display: flex; flex-wrap: wrap; gap: 4px 8px; font-size: 13px; letter-spacing: .05em; color: #c3ccd8; line-height: 1.5; }
+.ind .pdetails b { font-weight: 400; color: #fff; }
+.ind .pdetails i { font-style: normal; color: var(--po); }
+
+@media (max-width: 700px) {
+  .ind .pwrap { padding: 0; }
+  .ind .paper { padding: 22px 18px 30px; }
+  .ind .paper::before { display: none; }
+  .ind .ph { letter-spacing: .08em; font-size: 17px; }
+  .ind .pfoot { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .ind .pfoot img { height: 56px; }
+}

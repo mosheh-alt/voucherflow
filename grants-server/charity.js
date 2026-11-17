@@ -61,6 +61,24 @@ export async function searchCharities(query, apiKey) {
         .sort((a, b) => (b.name.toLowerCase().startsWith(lower) - a.name.toLowerCase().startsWith(lower)) || a.name.localeCompare(b.name))
         .slice(0, 15);
 }
+/** Quick check of many charity numbers (one call each): is it on the register, and under what name? */
+export async function quickCheck(numbers, apiKey) {
+    return Promise.all(numbers.map(async (raw) => {
+        const n = String(raw || "").replace(/\D/g, "");
+        if (!/^\d{6,8}$/.test(n))
+            return { number: String(raw || ""), found: false, message: "Not a valid charity number" };
+        try {
+            const d = one(await get(`charitydetails/${n}/0`, apiKey));
+            if (!d)
+                return { number: n, found: false, message: "Not found on the register" };
+            const removed = str(d.reg_status).toUpperCase() === "RM" || !!d.date_of_removal;
+            return { number: n, found: true, name: str(d.charity_name), registered: date(d.date_of_registration), removed, reportingStatus: str(d.reporting_status) };
+        }
+        catch (e) {
+            return { number: n, found: false, message: e.message };
+        }
+    }));
+}
 export class CharityNotFound extends Error {
 }
 /** Look up a registered charity and build the due-diligence snapshot. Suffix 0 = the main charity. */
