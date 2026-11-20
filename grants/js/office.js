@@ -7,6 +7,9 @@ import { $, $$, esc, money, fmtD, today, notice, field, select, pill, renderAppl
 import { signIn, signOut, signedIn, email, authHeader } from './session.js';
 import { suggestProofLines, paymentsInPeriod } from '/grants-server/rules.js';
 import { renderIndividual } from './ui.js';
+import { individualPdf, loadPdfLib } from './indpdf.js';
+import * as DSCAN from './docscan.js';
+import { scanPage } from './docscan-page.js';
 
 const METHODS = ['Bank transfer', 'Prepaid card', 'Paid direct to supplier'];
 const FILE_KIND = { id_document: 'ID', benefits_letter: 'Benefits letter', donation_receipt: 'Donation receipt', bank_proof: 'Proof of bank', invoice: 'Invoice', breakdown_proof: 'Proof of spending', receipt: 'Receipt', bank_confirmation: 'Bank confirmation' };
@@ -77,13 +80,15 @@ async function route() {
   const onInbox = location.hash === '#inbox';
   const onInd = location.hash === '#individuals' || (D && D.grant && D.grant.kind === 'individual' && /^#grant\//.test(location.hash));
   const cur = (id, on) => { const el = document.getElementById(id); if (el) el.setAttribute('aria-current', on ? 'page' : 'false'); };
-  cur('navGrants', !onInbox && !onInd); cur('navInd', !onInbox && onInd); cur('navInbox', onInbox);
+  const onScan = location.hash === '#docscan';
+  cur('navGrants', !onInbox && !onInd && !onScan); cur('navInd', !onInbox && onInd); cur('navInbox', onInbox); cur('navScan', onScan);
   if (!onInbox) refreshUnread();
   const m = location.hash.match(/^#grant\/([\w-]+)/);
   try {
     if (location.hash === '#import') { renderImport(); return; }
     if (location.hash === '#bank') { await startBank(); return; }
     if (location.hash === '#inbox') { await startInbox(); return; }
+    if (onScan) { await scanPage({ app, frame, notice, esc, api, fetchDoc, bindTop }); return; }
     if (m) { await loadGrant(m[1]); renderGrant(); }
     else { await loadList(); renderList(); }
   } catch (e) { if (e.message !== 'signed out') { console.error('Grants office:', e); app().innerHTML = frame('Grant applications', null, notice('bad', 'Could not load. Check your connection and refresh the page.')); } }
@@ -236,11 +241,15 @@ function renderGrant() {
   ${a.form && a.form.test ? `<div style="margin:12px 0">${notice('warn', `<b>Test grant</b> made from the form's test mode. <button class="link" type="button" id="delTest" ${B}>Delete this test grant</button>`)}</div>` : ''}
   ${imp ? importedPanel(a, imp, B) : ''}
   ${full ? `<div class="actions"><button class="ghost small" type="button" id="toggleApp">${O.showApp ? 'Hide' : 'View'} submitted application</button>
-    <button class="ghost small" type="button" id="pdf">Download PDF</button></div>
+    <button class="ghost small" type="button" id="pdf">Download PDF</button>
+    <button class="ghost small" type="button" id="bundle">Download all (one PDF)</button></div>
+  ${O.bundle ? bundleBox() : ''}
   ${O.showApp ? `<div class="panel">${ind ? renderIndividual(a) : renderApplication(a)}</div>` : ''}` : ''}
-  ${D.files.length ? `<div class="panel"><h3>Documents</h3><ul style="margin:0;padding-left:18px">${D.files.map((f) =>
-    `<li>${esc(FILE_KIND[f.kind] || f.kind)}: ${f.url ? `<a href="${esc(f.url)}" target="_blank" rel="noreferrer">${esc(f.name)}</a>` : esc(f.name)}</li>`).join('')}</ul>
-    <p class="note">Links work for 5 minutes. Refresh the page for fresh links.</p></div>` : ''}`;
+  ${!full && allDocs().length ? `<div class="actions"><button class="ghost small" type="button" id="bundle">Download all (one PDF)</button></div>${O.bundle ? bundleBox() : ''}` : ''}
+  ${D.files.length ? `<div class="panel"><h3>Documents</h3><ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px">${D.files.map((f, i) =>
+    `<li data-dkey="file:${esc(f.id)}">${esc(FILE_KIND[f.kind] || f.kind)}: <b>${esc(f.name)}</b>
+      <span class="note"> · ${f.url ? viewBtn(platformDocCount() + D.files.filter((x) => x.url).indexOf(f)) + ' · ' : ''}<button class="link" type="button" data-dl="${esc(f.id)}">Download</button> · ${delBtn('file', f.id)}</span></li>`).join('')}</ul>
+    <p class="note">View opens the document here; use Previous / Next to move through all the documents on this grant.</p></div>` : ''}`;
 
   // approval
   if (approved == null) {
@@ -319,10 +328,10 @@ function renderGrant() {
   // payments
   if (approved != null) {
     h += `<div class="panel"><h3>Payments <span class="note" style="margin:0">${money(paid)} paid of ${money(approved)} · ${money(approved - paid)} remaining</span></h3>
-    ${a.payments.length ? `<div class="tbl"><table class="mini"><thead><tr><th>Paid on</th><th>Trustees approved</th><th>From</th><th class="num">Amount</th></tr></thead><tbody>
+    ${a.payments.length ? `<div class="tbl"><table class="mini"><thead><tr><th>Paid on</th><th>Trustees approved</th><th>From</th><th class="num">Amount</th><th></th></tr></thead><tbody>
       ${a.payments.map((p) => `<tr><td>${fmtD(p.paid_on)}</td><td>${fmtD(p.trustees_approved_on)}</td>
         <td>${p.source === 'bank' ? `<span class="note">${esc(p.bank || 'Bank')}: ${esc(p.payee || '')}${p.reference ? ' · ' + esc(p.reference) : ''}</span>` : '<span class="note">Recorded here</span>'}</td>
-        <td class="num">${money(p.amount)}</td></tr>`).join('')}</tbody></table></div>`
+        <td class="num">${money(p.amount)}</td><td>${delBtn('payment', p.id)}</td></tr>`).join('')}</tbody></table></div>`
       : '<p class="note" style="margin-top:0">No payments yet.</p>'}
     ${canPay && paid < approved - 0.005 ? `<div class="grid" style="margin-top:14px">
       ${field('pay.amount', 'Amount (£)', O.payAmount || '', { type: 'number' })}
@@ -349,14 +358,21 @@ function renderGrant() {
       const inP = paymentsInPeriod(a.payments.map((p) => ({ paidOn: p.paid_on, amount: Number(p.amount) })), bf, bt);
       h += `<p class="note" style="margin-top:0">Ask the recipient for a breakdown of how the grant was used in a year (1 January – 31 December). No agreement is needed.</p>
       ${periodBlock('bd', a, inP)}
+      ${a.kind !== 'individual' ? `<label style="display:flex;gap:8px;align-items:flex-start;margin:4px 0 2px;cursor:pointer"><input type="checkbox" id="bd.both" ${O.both ? 'checked' : ''} style="margin-top:3px;accent-color:var(--orange)">
+        <span><b>Also ask for the donation receipt in the same email</b><br><span class="note">One email with two buttons: the breakdown and the receipt upload. Both are tracked as usual, and reminders go out as one email too.</span></span></label>` : ''}
       <div class="actions"><button class="ghost small" type="button" id="bdPreview" ${BUSY ? 'disabled' : ''}>Preview email</button>
-        <button class="primary small" type="button" id="reqBd" ${BUSY ? 'disabled' : ''}>Request breakdown</button></div>
-      ${O.bdMail && O.bdMail.kind === 'breakdown' ? mailBox() : ''}`;
+        <button class="primary small" type="button" id="reqBd" ${BUSY ? 'disabled' : ''}>${bothOn() ? 'Request breakdown and receipt' : 'Request breakdown'}</button></div>
+      ${O.bdMail && (O.bdMail.kind === 'breakdown' || O.bdMail.kind === 'both') ? mailBox() : ''}`;
     } else {
       const lines = open.breakdown_lines || [];
       h += `<p class="note" style="margin-top:0">Breakdown for ${fmtD(open.period_from)} to ${fmtD(open.period_to)}, ${money(open.total_paid)} paid.</p>`;
       if (open.status === 'requested') {
-        h += `<div style="margin-top:10px">${notice('warn', `Requested ${fmtD(open.requested_on)}. Waiting for the recipient; reminders go out every 14 days.`)}</div>`;
+        h += `<div style="margin-top:10px">${notice('warn', `Requested ${fmtD(open.requested_on)}${open.sent_to ? ' from ' + esc(open.sent_to) : ''}${open.email && open.email.pair && (a.receipt_requests || []).some((r) => r.id === open.email.pair && !r.received_at && r.email && r.email.pair === open.id) ? ', in one email with the donation receipt request' : ''}. Waiting for the recipient; reminders go out every 14 days.`)}</div>
+          <div class="actions" style="margin-top:8px"><button class="ghost small" type="button" data-sr="breakdown|${open.id}|view">View request</button>
+            <button class="ghost small" type="button" data-sr="breakdown|${open.id}|pdf">Download PDF</button>
+            <button class="ghost small" type="button" data-sr="breakdown|${open.id}|edit">Edit request</button>
+            <button class="ghost small" type="button" data-sr="breakdown|${open.id}|cancel">Cancel request</button></div>
+          ${O.sent && O.sent.kind === 'breakdown' ? sentBox() : ''}`;
       } else {
         h += `<div class="tbl" style="margin-top:10px"><table class="mini"><thead><tr><th>${open.status === 'submitted' ? 'Ask for proof' : ''}</th><th>Spent on</th><th class="num">Amount</th><th>Proof</th></tr></thead><tbody>
           ${lines.map((l, i) => `<tr><td>${open.status === 'submitted' ? `<input type="checkbox" data-pick="${l.id}" ${O.picked[l.id] ? 'checked' : ''} aria-label="Ask for proof of line ${i + 1}" style="accent-color:var(--orange)">` : ''}</td>
@@ -381,27 +397,186 @@ function renderGrant() {
     const inR = paymentsInPeriod(a.payments.map((p) => ({ paidOn: p.paid_on, amount: Number(p.amount) })), rf, rt);
     const rcFiles = (r) => ((r.file_ids && r.file_ids.length) ? r.file_ids : r.file_id ? [r.file_id] : []).map((id) => D.files.find((f) => f.id === id)).filter(Boolean);
     h += `<div class="panel"><h3>Donation receipts</h3>
-      <p class="note" style="margin-top:0">Ask the charity for a receipt for the donations Toirem paid in a period. They get a link to upload it, with reminders every 14 days.</p>
+      <p class="note" style="margin-top:0">Ask the charity for a receipt for the donations Toirem paid in a period. They get a link to upload it, with reminders every 14 days.${!open ? ' To ask for it together with the breakdown in one email, tick “Also ask for the donation receipt” under Monitoring.' : ''}</p>
       ${RR.length ? `<div class="tbl"><table class="mini"><thead><tr><th>Period</th><th class="num">Amount</th><th>Requested</th><th>Receipt</th></tr></thead><tbody>
         ${RR.map((r) => `<tr><td>${fmtD(r.period_from)} – ${fmtD(r.period_to)}</td><td class="num">${money(r.total)}</td><td>${fmtD(r.requested_on)}${r.sent_to ? `<br><span class="note">${esc(r.sent_to)}</span>` : ''}</td>
-          <td>${r.received_at ? `✓ Received ${fmtD(r.received_at.slice(0, 10))}<br>${rcFiles(r).map((f, i) => f.url ? `<a href="${esc(f.url)}" target="_blank" rel="noreferrer">${esc(f.name)}</a>` : esc(f.name)).join('<br>')}` : '<span class="pill p-wait">Waiting</span>'}</td></tr>`).join('')}
+          <td>${r.received_at ? `✓ Received ${fmtD(r.received_at.slice(0, 10))}<br>${rcFiles(r).map((f) => `<button class="link" type="button" data-dl="${esc(f.id)}">${esc(f.name)}</button>`).join('<br>')}` : `<span class="pill p-wait">Waiting</span><br><span class="note">${sentButtons('receipt', r.id)} · <button class="link" type="button" data-sr="receipt|${r.id}|pdf">PDF</button></span>`}</td></tr>`).join('')}
       </tbody></table></div>` : ''}
       ${periodBlock('rc', a, inR)}
       <div class="actions"><button class="ghost small" type="button" id="rcPreview" ${BUSY ? 'disabled' : ''}>Preview email</button>
         <button class="primary small" type="button" id="reqRc" ${BUSY ? 'disabled' : ''}>Request donation receipt</button></div>
+      ${O.sent && O.sent.kind === 'receipt' ? sentBox() : ''}
       ${O.bdMail && O.bdMail.kind === 'receipt' ? mailBox() : ''}</div>`;
     }
   }
 
+  h += `<details class="panel" style="margin-top:22px" ${O.delGrantOpen ? 'open' : ''} id="delGrantBox"><summary style="cursor:pointer;color:#c0262d;font-weight:700">Delete this grant</summary>
+    <p class="note">This deletes the grant, its agreement, payments, monitoring, requests and uploaded documents. Bank statement lines added to it go back to “To check”. It can't be undone.</p>
+    <div class="row">${field('delRef', 'Type the reference ' + a.ref + ' to confirm', '', { req: false })}<button class="ghost small" type="button" id="delGrant" style="color:#c0262d;border-color:#c0262d" ${BUSY ? 'disabled' : ''}>Delete the grant</button></div></details>`;
   app().innerHTML = frame(a.org_name, `<span class="mref">${esc(a.ref)}</span>${pill(D.status)}`, h);
   bindGrant(open);
 }
 
-const mailBox = () => `<div style="margin-top:14px;border:1px solid var(--line);border-radius:8px;overflow:hidden">
-        <div style="background:#f1f3f8;padding:10px 14px;font-size:13.5px"><b>${O.bdMail.kind === 'receipt' ? 'Donation receipt request' : 'Breakdown request'}</b><br><b>To:</b> ${esc(O.bdMail.to || '—')}<br><b>Subject:</b> ${esc(O.bdMail.subject)}</div>
-        <div style="padding:18px;background:#fff">${O.bdMail.html}</div>
-        <div class="actions" style="padding:0 14px 14px"><button class="ghost small" type="button" id="bdPdf">Download as PDF</button><button class="ghost small" type="button" id="bdClose">Close preview</button>
-          <span class="note">The button in the real email opens the recipient's own upload page.</span></div></div>`;
+/** A delete button that needs a second press to confirm. */
+const delBtn = (what, key, label = 'Delete') => {
+  const armed = O.confirmDel === what + '|' + key;
+  return `<button class="link" type="button" data-del="${esc(what)}|${esc(key)}" style="color:#c0262d">${armed ? 'Press again to delete' : label}</button>`;
+};
+const docApi = (url) => '/api/grants/office/doc?url=' + encodeURIComponent(url);
+const platformDocCount = () => { const imp = (D.grant.imported || {}); return (imp.docs || []).length + (imp.consent || []).length; };
+const viewBtn = (i) => `<button class="link" type="button" data-viewdoc="${i}">View</button>`;
+/** Every document on this grant, for the viewer: uploaded files first, then the platform's documents. */
+function grantDocs() {
+  const a = D.grant, imp = a.imported || {};
+  // Same order as on the page: the platform's documents (imported panel) first, then the uploaded ones.
+  return [
+    ...(imp.docs || []).map((d, i) => ({ title: 'Platform document ' + (i + 1) + (d.campaign ? ' · campaign ' + d.campaign : ''), key: d.url, api: docApi(d.url), url: d.url, name: a.ref + ' document ' + (i + 1) + '.' + (d.type || (d.url.match(/\.(\w+)(\?|$)/) || [])[1] || 'pdf').toLowerCase() })),
+    ...(imp.consent || []).map((u, i) => ({ title: 'Consent form' + ((imp.consent || []).length > 1 ? ' ' + (i + 1) : ''), key: u, api: docApi(u), url: u, name: a.ref + ' consent form.' + ((u.match(/\.(\w+)(\?|$)/) || [])[1] || 'jpg').toLowerCase() })),
+    ...D.files.filter((f) => f.url).map((f) => ({ key: 'file:' + f.id, title: (FILE_KIND[f.kind] || f.kind) + ': ' + f.name, api: '/api/grants/office/file/' + f.id, name: f.name })),
+  ];
+}
+
+/** The application form itself, as a document: individuals in the paper-form design, charities from the server. */
+function formItem() {
+  const a = D.grant;
+  if (!a.form || !(a.form.person || a.form.grant)) return null;
+  const who = a.kind === 'individual' ? [a.form.person && a.form.person.first, a.form.person && a.form.person.last].filter(Boolean).join(' ') || a.org_name : a.org_name;
+  const name = `${a.ref} Application ${who}.pdf`.replace(/[\\/:*?"<>|]+/g, ' ');
+  if (a.kind !== 'individual') return { title: 'Application form', api: '/api/grants/office/pdf/' + a.id, name };
+  return { title: 'Application form', name, make: async () => new Blob([await individualPdf(a.form, individualMeta(a))], { type: 'application/pdf' }) };
+}
+function individualMeta(a) {
+  const when = a.completed_at || a.created_at;
+  const docs = [...new Set(D.files.map((f) => ({ bank_proof: 'Proof of bank', id_document: 'ID', benefits_letter: 'Benefits letter' }[f.kind])).filter(Boolean))];
+  return { ref: a.ref, docs, submitted: when ? new Date(when).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : '',
+    authorised: a.approved_on || '', approved: a.approved_amount == null ? null : Number(a.approved_amount) };
+}
+/** Everything on the grant, in page order: the form, the documents, and the signed agreement. */
+function allDocs() {
+  const a = D.grant, f = formItem();
+  const ag = a.agreement && a.agreement.status === 'signed' ? [{ title: 'Signed grant agreement', api: '/api/grants/office/agreement-pdf/' + a.id, name: a.ref + ' Grant Agreement.pdf' }] : [];
+  return [...(f ? [f] : []), ...grantDocs(), ...ag];
+}
+const formOffset = () => (formItem() ? 1 : 0);
+
+/** Merge the chosen documents into one PDF, with a contents page first. */
+async function bundlePdf(items, progress) {
+  const PDFLib = await loadPdfLib();
+  const out = await PDFLib.PDFDocument.create();
+  const A4 = [595.28, 841.89], toc = [];
+  for (let n = 0; n < items.length; n++) {
+    const d = items[n];
+    progress(`Adding ${n + 1} of ${items.length}: ${d.title}…`);
+    const start = out.getPageCount() + 2;            // +1 for the contents page, +1 as pages count from 1
+    let note = '';
+    try {
+      const blob = d.make ? await d.make() : await fetchDoc(d.api);
+      const bytes = new Uint8Array(await blob.arrayBuffer()), type = sniffType(bytes, blob.type);
+      if (type === 'application/pdf') {
+        const src = await PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true });
+        (await out.copyPages(src, src.getPageIndices())).forEach((p) => out.addPage(p));
+      } else if (/^image\//.test(type)) {
+        const img = type === 'image/png' ? await out.embedPng(bytes) : type === 'image/jpeg' ? await out.embedJpg(bytes) : await out.embedJpg(await toJpeg(blob));
+        const land = img.width > img.height * 1.15, [pw, ph] = land ? [A4[1], A4[0]] : A4, m = 28;
+        const k = Math.min((pw - 2 * m) / img.width, (ph - 2 * m) / img.height, 2);
+        const page = out.addPage([pw, ph]);
+        page.drawImage(img, { x: (pw - img.width * k) / 2, y: (ph - img.height * k) / 2, width: img.width * k, height: img.height * k });
+      } else throw new Error('type');
+    } catch (e) {
+      note = e.message === 'type' ? "This kind of file can't be put into a PDF. Download it separately." : "This file couldn't be added (it may be damaged or password-protected). Download it separately.";
+      await textPage(out, out.addPage(A4), [{ t: d.title, size: 17, bold: true }, { t: d.name || '', size: 11, grey: true }, { t: '' }, ...note.split(/(?<=\.) /).map((t) => ({ t, size: 12 }))]);
+    }
+    toc.push({ title: d.title, page: start, note });
+  }
+  const a = D.grant;
+  const lines = [{ t: `${a.ref}  ·  ${a.org_name}`, size: 20, bold: true }, { t: `All documents on this grant · made ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}`, size: 11, grey: true }, { t: '' },
+    ...toc.map((x, n) => ({ t: `${n + 1}.  ${x.title}${x.note ? '  (not included – see its page)' : ''}`, right: 'page ' + x.page, size: 12 }))];
+  await textPage(out, out.insertPage(0, A4), lines);
+  out.setTitle(`${a.ref} ${a.org_name} – all documents`); out.setAuthor('Toirem'); out.setCreator('Toirem Management');
+  return out.save();
+}
+function sniffType(b, given) {
+  if (b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46) return 'application/pdf';
+  if (b[0] === 0xff && b[1] === 0xd8) return 'image/jpeg';
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image/png';
+  return given || 'application/octet-stream';
+}
+async function toJpeg(blob) {
+  const bmp = await createImageBitmap(blob);
+  const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
+  const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(bmp, 0, 0);
+  return new Uint8Array(await (await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.9))).arrayBuffer());
+}
+/** Draw lines of text on an A4 page, rendered by the browser so any language (Hebrew included) comes out right. */
+async function textPage(out, page, lines) {
+  const W = page.getWidth(), H = page.getHeight(), S = 3, c = document.createElement('canvas'); c.width = W * S; c.height = H * S;
+  const x = c.getContext('2d'); x.scale(S, S);
+  x.fillStyle = '#2E4563'; x.fillRect(0, 0, W, 10);
+  let y = 80;
+  for (const l of lines) {
+    const size = l.size || 12; x.font = `${l.bold ? 700 : 400} ${size}px Montserrat, Arial, sans-serif`; x.fillStyle = l.grey ? '#7d8ca3' : '#2E4563';
+    let t = l.t || ''; const maxW = l.right ? W - 160 : W - 96;
+    while (t && x.measureText(t).width > maxW) t = t.slice(0, -2) + '…';
+    x.textAlign = 'left'; x.fillText(t, 48, y);
+    if (l.right) { x.textAlign = 'right'; x.fillStyle = '#7d8ca3'; x.fillText(l.right, W - 48, y); }
+    y += size * 1.9;
+    if (y > H - 50) break;
+  }
+  const img = await out.embedPng(await (await new Promise((r) => c.toBlob(r, 'image/png'))).arrayBuffer());
+  page.drawImage(img, { x: 0, y: 0, width: W, height: H });
+}
+const bundleBox = () => {
+  const items = allDocs(), off = O.bundleOff || new Set();
+  return `<div class="panel" id="bundlePanel"><h3>Download all documents as one PDF</h3>
+    <p class="note" style="margin-top:0">Untick anything you want to leave out. The PDF starts with a contents page; photos and scans each get their own page.</p>
+    <div style="display:flex;flex-direction:column;gap:6px;margin:8px 0 12px">${items.map((d, i) => `<label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" data-bun="${i}" ${off.has(i) ? '' : 'checked'}> <span>${esc(d.title)}</span></label>`).join('')}</div>
+    <div class="actions"><button class="primary small" type="button" id="bunGo" ${O.bunBusy ? 'disabled' : ''}>${O.bunBusy ? 'Making the PDF…' : 'Download combined PDF'}</button>
+      <button class="ghost small" type="button" id="bunAll">Tick all</button><button class="ghost small" type="button" id="bunNone">Untick all</button>
+      <button class="ghost small" type="button" id="bunClose">Close</button></div>
+    <p class="note" id="bunMsg" aria-live="polite">${esc(O.bunMsg || '')}</p></div>`;
+};
+
+const mailBox = () => {
+  const m = O.bdMail, k = m.kind, ed = O.editMail === k;
+  return `<div style="margin-top:14px;border:1px solid var(--line);border-radius:8px;overflow:hidden">
+    <div style="background:#f1f3f8;padding:10px 14px;font-size:13.5px"><b>${k === 'receipt' ? 'Donation receipt request' : k === 'both' ? 'Breakdown and donation receipt request (one email)' : 'Breakdown request'}</b>${O.custom && O.custom[k] ? ' <span class="pill p-new">Edited wording</span>' : ''}<br><b>To:</b> ${esc(m.to || '—')}<br><b>Subject:</b> ${esc(m.subject)}</div>
+    ${ed ? `<div style="padding:14px 18px;background:#fafbfd;border-bottom:1px solid var(--line)"><div class="grid">
+        ${field('mw.subject', 'Subject', m.parts.subject, { full: true })}
+        ${field('mw.message', 'Message (above the list of payments)', m.parts.message, { area: true, full: true })}
+        ${field('mw.note', k === 'both' ? 'Closing note (before the two buttons)' : 'Closing note (before the button)', m.parts.note, { area: true, full: true })}</div>
+        <div class="actions"><button class="primary small" type="button" id="mwApply">Update the email</button><button class="ghost small" type="button" id="mwReset">Standard wording</button><button class="ghost small" type="button" id="mwCancel">Cancel</button></div></div>` : ''}
+    <div style="padding:18px;background:#fff">${m.html}</div>
+    <div class="actions" style="padding:0 14px 14px">${ed ? '' : '<button class="ghost small" type="button" id="mwEdit">Edit wording</button>'}<button class="ghost small" type="button" id="bdPdf">Download as PDF</button><button class="ghost small" type="button" id="bdClose">Close preview</button>
+      <span class="note">${k === 'both' ? 'The two buttons in the real email open the recipient\'s own breakdown and receipt pages.' : 'The button in the real email opens the recipient\'s own upload page.'}</span></div></div>`;
+};
+
+/** A request that was already sent: view it, download it, edit it (and send again) or cancel it. */
+const sentBox = () => {
+  const S2 = O.sent; if (!S2) return '';
+  if (!S2.data) return '<p class="loading">Loading the request…</p>';
+  const d = S2.data;
+  if (S2.editing) {
+    const f = S2.form;
+    return `<div class="panel" style="margin:12px 0;background:#fafbfd"><h3 style="margin-top:0">Edit the ${d.kind === 'receipt' ? 'donation receipt' : 'breakdown'} request</h3>
+      <p class="note" style="margin-top:0">The recipient's link stays the same. Save and send again to email them the updated request.${d.paired ? ` <b>This was sent in one email with the ${d.kind === 'receipt' ? 'breakdown' : 'donation receipt'} request.</b> After editing, this request goes on its own (with its own reminders); the other one is not changed.` : ''}</p>
+      <div class="grid">${field('sr.from', 'From', f.from, { type: 'date' })}${field('sr.to', 'To', f.to, { type: 'date' })}
+        ${field('sr.amount', 'Amount paid (£) – used only if no payments are recorded in the period', f.amount, { type: 'number', req: false })}${field('sr.email', 'Send to email', f.email, { type: 'email' })}
+        ${field('sr.subject', 'Subject', f.subject, { full: true })}
+        ${field('sr.message', 'Message (above the list of payments)', f.message, { area: true, full: true })}
+        ${field('sr.note', 'Closing note (before the button)', f.note, { area: true, full: true })}</div>
+      <div class="actions"><button class="primary small" type="button" id="srResend" ${BUSY ? 'disabled' : ''}>Save and send again</button>
+        <button class="ghost small" type="button" id="srSave" ${BUSY ? 'disabled' : ''}>Save without sending</button><button class="ghost small" type="button" id="srBack">Cancel</button></div></div>`;
+  }
+  return `<div style="margin:12px 0;border:1px solid var(--line);border-radius:8px;overflow:hidden">
+    <div style="background:#f1f3f8;padding:10px 14px;font-size:13.5px"><b>${d.paired ? 'Breakdown and donation receipt request (one email)' : d.kind === 'receipt' ? 'Donation receipt request' : 'Breakdown request'} as sent</b> · ${fmtD(d.sentOn)}${d.lastReminded ? ' · last reminder ' + fmtD(String(d.lastReminded).slice(0, 10)) : ''}<br>
+      <b>To:</b> ${esc(d.to || '—')}<br><b>Subject:</b> ${esc(d.subject)}</div>
+    <div style="padding:18px;background:#fff">${d.html}</div>
+    <div class="actions" style="padding:0 14px 14px"><button class="ghost small" type="button" id="srPdf">Download as PDF</button>
+      ${d.open ? '<button class="ghost small" type="button" id="srEdit">Edit request</button><button class="ghost small" type="button" id="srCancel">Cancel request</button>' : ''}
+      <button class="ghost small" type="button" id="srClose">Close</button></div></div>`;
+};
+const bothOn = () => !!O.both && D && D.grant.kind !== 'individual';
+const sentButtons = (kind, id) => `<button class="link" type="button" data-sr="${kind}|${id}|view">View</button> · <button class="link" type="button" data-sr="${kind}|${id}|edit">Edit</button> · <button class="link" type="button" data-sr="${kind}|${id}|cancel">Cancel</button>`;
 
 function keep() {
   const v = (id) => { const el = document.getElementById(id); return el ? el.value : undefined; };
@@ -426,12 +601,41 @@ async function act(path, body, okText, after) {
   await loadGrant(D.grant.id); renderGrant();
 }
 
+/** Document check codes next to each document (only when the feature is on and results exist in this browser). */
+let SCAN = new Map();
+async function decorateDocs() {
+  SCAN = await DSCAN.resultsMap().catch(() => new Map());
+  if (!SCAN.size) return;
+  document.querySelectorAll('[data-dkey]').forEach((li) => {
+    const r = SCAN.get(li.dataset.dkey); if (!r || li.querySelector('.dchip')) return;
+    const first = li.querySelector('button.link.u, b'); const span = document.createElement('span');
+    span.innerHTML = ' ' + DSCAN.chipHtml(r, esc); (first || li).after(span);
+  });
+}
 function bindGrant(open) {
   bindTop();
+  decorateDocs();
   const id = D.grant.id;
   const on = (sel, fn, ev = 'click') => { const el = document.getElementById(sel); if (el) el.addEventListener(ev, fn); };
   $$('input,select,textarea', app()).forEach((el) => el.addEventListener('change', keep));
-  on('toggleApp', () => { keep(); O.showApp = !O.showApp; renderGrant(); });
+  on('toggleApp', () => { keep(); if (D.grant.kind === 'individual') { openViewer(allDocs(), 0); return; } O.showApp = !O.showApp; renderGrant(); });
+  on('bundle', () => { keep(); O.bundle = !O.bundle; O.bunMsg = ''; renderGrant(); });
+  on('bunClose', () => { keep(); O.bundle = false; renderGrant(); });
+  on('bunAll', () => { keep(); O.bundleOff = new Set(); renderGrant(); });
+  on('bunNone', () => { keep(); O.bundleOff = new Set(allDocs().map((_, i) => i)); renderGrant(); });
+  $$('[data-bun]').forEach((c) => c.addEventListener('change', () => { O.bundleOff = O.bundleOff || new Set(); if (c.checked) O.bundleOff.delete(+c.dataset.bun); else O.bundleOff.add(+c.dataset.bun); }));
+  on('bunGo', async () => {
+    const off = O.bundleOff || new Set(), items = allDocs().filter((_, i) => !off.has(i));
+    const msg = (t) => { O.bunMsg = t; const el = document.getElementById('bunMsg'); if (el) el.textContent = t; };
+    if (!items.length) { msg('Tick at least one document.'); return; }
+    keep(); O.bunBusy = true; renderGrant();
+    try {
+      const bytes = await bundlePdf(items, msg);
+      saveBlob(new Blob([bytes], { type: 'application/pdf' }), `${D.grant.ref} ${D.grant.org_name} - all documents.pdf`.replace(/[\\/:*?"<>|]+/g, ' '));
+      O.bunMsg = `Done: ${items.length} item${items.length === 1 ? '' : 's'} in one PDF.`;
+    } catch (e) { O.bunMsg = "The PDF couldn't be made: " + (e.message || e); }
+    O.bunBusy = false; renderGrant();
+  });
   on('delTest', async () => {
     if (!O.confirmDel) { O.confirmDel = true; FLASH = { kind: 'warn', text: 'Press “Delete this test grant” again to delete it.' }; renderGrant(); return; }
     let r; try { r = await api('delete-test', { id }); } catch (e) { return; }
@@ -453,7 +657,12 @@ function bindGrant(open) {
       b.disabled = false; b.textContent = label;
     } catch (e) { FLASH = { kind: 'bad', text: "The PDF couldn't be made. Check your connection and try again." }; renderGrant(); }
   };
-  on('pdf', () => download('pdf', '/api/grants/office/pdf/' + id, 'Download PDF', D.grant.ref + '.pdf'));
+  on('pdf', async () => {
+    if (D.grant.kind !== 'individual') return download('pdf', '/api/grants/office/pdf/' + id, 'Download PDF', D.grant.ref + '.pdf');
+    const b = document.getElementById('pdf'); b.disabled = true; b.textContent = 'Preparing PDF…';
+    try { const it = formItem(); saveBlob(await it.make(), it.name); } catch (e) { alertBox("The PDF couldn't be made: " + (e.message || e)); return; }
+    b.disabled = false; b.textContent = 'Download PDF';
+  });
   on('agPdf', () => {
     const signed = D.grant.agreement && D.grant.agreement.status === 'signed';
     if (signed) download('agPdf', '/api/grants/office/agreement-pdf/' + id, 'Download signed agreement', D.grant.ref + ' Grant Agreement.pdf');
@@ -462,20 +671,75 @@ function bindGrant(open) {
   on('bdPreview', async () => {
     keep();
     const b = document.getElementById('bdPreview'); b.disabled = true; b.textContent = 'Loading preview…';
-    let r; try { r = await api('email-preview', { ...{ id, from: periodOf('bd')[0], to: periodOf('bd')[1], amount: O.bdAmount, email: O.bdEmail }, kind: 'breakdown' }); } catch (e) { return; }
+    const k = bothOn() ? 'both' : 'breakdown';
+    let r; try { r = await api('email-preview', { ...{ id, from: periodOf('bd')[0], to: periodOf('bd')[1], amount: O.bdAmount, email: O.bdEmail }, kind: k, custom: (O.custom || {})[k] }); } catch (e) { return; }
     if (!r.ok) { FLASH = { kind: 'bad', text: r.message }; renderGrant(); return; }
-    O.bdMail = { ...r, kind: 'breakdown' }; renderGrant();
+    O.bdMail = { ...r, kind: k }; renderGrant();
   });
-  on('bdClose', () => { O.bdMail = null; renderGrant(); });
-  on('bdPdf', () => { keep(); const k = O.bdMail.kind; download('bdPdf', '/api/grants/office/email-pdf', 'Download as PDF', D.grant.ref + (k === 'receipt' ? ' Receipt request.pdf' : ' Breakdown request.pdf'), k === 'receipt' ? { ...{ id, from: periodOf('rc')[0], to: periodOf('rc')[1], amount: O.rcAmount, email: O.rcEmail }, kind: k } : { ...{ id, from: periodOf('bd')[0], to: periodOf('bd')[1], amount: O.bdAmount, email: O.bdEmail }, kind: k }); });
+  on('bdClose', () => { O.bdMail = null; O.editMail = null; renderGrant(); });
+  on('bd.both', () => { keep(); O.both = document.getElementById('bd.both').checked; O.bdMail = null; O.editMail = null; renderGrant(); }, 'change');
+  $$('[data-del]').forEach((b) => b.addEventListener('click', async () => {
+    const [what, ...rest] = b.dataset.del.split('|'); const key = rest.join('|');
+    if (O.confirmDel !== what + '|' + key) { O.confirmDel = what + '|' + key; renderGrant(); return; }
+    O.confirmDel = null; keep();
+    act('delete', { id, what, key }, (r) => r.message);
+  }));
+  $$('[data-viewdoc]').forEach((b) => b.addEventListener('click', () => openViewer(allDocs(), +b.dataset.viewdoc + formOffset())));
+  $$('[data-dl]').forEach((b) => b.addEventListener('click', () => { const f = D.files.find((x) => x.id === b.dataset.dl); downloadDoc('/api/grants/office/file/' + b.dataset.dl, f ? f.name : 'document', b); }));
+  $$('[data-dlp]').forEach((b) => b.addEventListener('click', () => { const d = grantDocs()[+b.dataset.dlp]; downloadDoc(d.api, d.name, b); }));
+  const dg = document.getElementById('delGrantBox'); if (dg) dg.addEventListener('toggle', () => { O.delGrantOpen = dg.open; });
+  on('delGrant', async () => {
+    const ref = (document.getElementById('delRef') || {}).value || '';
+    BUSY = true; renderGrant();
+    let r; try { r = await api('delete', { id, what: 'grant', confirm: ref }); } catch (e) { BUSY = false; return; }
+    BUSY = false;
+    if (!r.ok) { FLASH = { kind: 'bad', text: r.message }; O.delGrantOpen = true; renderGrant(); return; }
+    LIST = null; location.hash = D.grant.kind === 'individual' ? 'individuals' : '';
+  });
+  const repreview = (k) => { document.getElementById(k === 'receipt' ? 'rcPreview' : 'bdPreview')?.click(); }; // 'both' previews from the Monitoring panel
+  on('mwEdit', () => { keep(); O.editMail = O.bdMail.kind; renderGrant(); });
+  on('mwCancel', () => { O.editMail = null; renderGrant(); });
+  on('mwApply', () => { const k = O.bdMail.kind; O.custom = O.custom || {}; O.custom[k] = { subject: document.getElementById('mw.subject').value, message: document.getElementById('mw.message').value, note: document.getElementById('mw.note').value }; O.editMail = null; repreview(k); });
+  on('mwReset', () => { const k = O.bdMail.kind; if (O.custom) O.custom[k] = null; O.editMail = null; repreview(k); });
+  // requests already sent
+  $$('[data-sr]').forEach((b) => b.addEventListener('click', async () => {
+    const [kind, itemId, what] = b.dataset.sr.split('|');
+    keep();
+    if (what === 'pdf') { if (!b.id) b.id = 'srTmp' + itemId.slice(0, 8); return download(b.id, '/api/grants/office/request-pdf', b.textContent, D.grant.ref + ' request.pdf', { kind, itemId }); }
+    if (what === 'cancel') {
+      if (O.confirmCancel !== itemId) { O.confirmCancel = itemId; FLASH = { kind: 'warn', text: 'Press Cancel again to cancel this request. The link in the email will stop working.' }; renderGrant(); return; }
+      O.confirmCancel = null; O.sent = null; return act('request-cancel', { kind, itemId }, 'Request cancelled.');
+    }
+    O.sent = { kind, itemId, data: null, editing: what === 'edit' }; renderGrant();
+    let r; try { r = await api('request-view', { kind, itemId }); } catch (e) { return; }
+    if (!r.ok) { O.sent = null; FLASH = { kind: 'bad', text: r.message }; renderGrant(); return; }
+    O.sent.data = r;
+    const pp = r.paired && r.singleParts ? r.singleParts : r.parts;   // editing one half of a pair: start from its own wording
+    O.sent.form = { from: r.from, to: r.toDate, amount: r.total, email: r.to, subject: pp.subject, message: pp.message, note: pp.note };
+    renderGrant();
+  }));
+  const srForm = () => { const v = (k) => { const el = document.getElementById('sr.' + k); return el ? el.value : O.sent.form[k]; }; for (const k of ['from', 'to', 'amount', 'email', 'subject', 'message', 'note']) O.sent.form[k] = v(k); return O.sent.form; };
+  const srSave = (resend) => {
+    const f = srForm(), S2 = O.sent;
+    act('request-update', { kind: S2.kind, itemId: S2.itemId, from: f.from, to: f.to, amount: f.amount, email: f.email, resend, custom: { subject: f.subject, message: f.message, note: f.note } },
+      (r) => (r.resent ? `Request updated and sent again to ${r.to}.` : 'Request updated (not sent again).'), () => { O.sent = null; });
+  };
+  on('srResend', () => srSave(true));
+  on('srSave', () => srSave(false));
+  on('srBack', () => { srForm(); O.sent.editing = false; renderGrant(); });
+  on('srEdit', () => { O.sent.editing = true; renderGrant(); });
+  on('srClose', () => { O.sent = null; renderGrant(); });
+  on('srCancel', () => { const b = document.querySelector(`[data-sr="${O.sent.kind}|${O.sent.itemId}|cancel"]`); if (b) b.click(); });
+  on('srPdf', () => download('srPdf', '/api/grants/office/request-pdf', 'Download as PDF', D.grant.ref + ' request.pdf', { kind: O.sent.kind, itemId: O.sent.itemId }));
+  on('bdPdf', () => { keep(); const k = O.bdMail.kind; download('bdPdf', '/api/grants/office/email-pdf', 'Download as PDF', D.grant.ref + (k === 'receipt' ? ' Receipt request.pdf' : k === 'both' ? ' Breakdown and receipt request.pdf' : ' Breakdown request.pdf'), k === 'receipt' ? { ...{ id, from: periodOf('rc')[0], to: periodOf('rc')[1], amount: O.rcAmount, email: O.rcEmail }, kind: k, custom: (O.custom || {}).receipt } : { ...{ id, from: periodOf('bd')[0], to: periodOf('bd')[1], amount: O.bdAmount, email: O.bdEmail }, kind: k, custom: (O.custom || {})[k] }); });
   on('rcPreview', async () => {
     keep();
     const b = document.getElementById('rcPreview'); b.disabled = true; b.textContent = 'Loading preview…';
-    let r; try { r = await api('email-preview', { ...{ id, from: periodOf('rc')[0], to: periodOf('rc')[1], amount: O.rcAmount, email: O.rcEmail }, kind: 'receipt' }); } catch (e) { return; }
+    let r; try { r = await api('email-preview', { ...{ id, from: periodOf('rc')[0], to: periodOf('rc')[1], amount: O.rcAmount, email: O.rcEmail }, kind: 'receipt', custom: (O.custom || {}).receipt }); } catch (e) { return; }
     if (!r.ok) { FLASH = { kind: 'bad', text: r.message }; renderGrant(); return; }
     O.bdMail = { ...r, kind: 'receipt' }; renderGrant();
   });
-  on('reqRc', () => { keep(); act('request-receipt', { id, from: periodOf('rc')[0], to: periodOf('rc')[1], amount: O.rcAmount, email: O.rcEmail }, (r) => `Donation receipt requested from ${r.to}.`, () => { O.bdMail = null; }); });
+  on('reqRc', () => { keep(); act('request-receipt', { id, from: periodOf('rc')[0], to: periodOf('rc')[1], amount: O.rcAmount, email: O.rcEmail, custom: (O.custom || {}).receipt }, (r) => `Donation receipt requested from ${r.to}.`, () => { O.bdMail = null; }); });
   on('toggleAg', () => { keep(); O.showAg = !O.showAg; renderGrant(); });
   on('editAg', () => { keep(); O.editAg = true; O.ed = null; renderGrant(); });
   on('cancelEd', () => { O.editAg = false; O.ed = null; renderGrant(); });
@@ -495,7 +759,11 @@ function bindGrant(open) {
   on('recordPay', () => { keep(); act('payment', { id, amount: Number(O.payAmount), paidOn: O.payDate, approvedOn: O.payApproved },
     (r) => `Payment of ${money(O.payAmount)} recorded.${r.receiptsRequested ? ' Receipt and bank confirmation requests sent.' : ''}`, () => { O.payAmount = ''; }); });
   on('override', () => act('override', { id }, 'Switched to paying suppliers directly. No receipts will be chased.'));
-  on('reqBd', () => { keep(); act('request-breakdown', { id, from: periodOf('bd')[0], to: periodOf('bd')[1], amount: O.bdAmount, email: O.bdEmail }, (r) => `Breakdown requested from ${r.to}. They've been emailed a link.`, () => { O.bdMail = null; }); });
+  on('reqBd', () => {
+    keep();
+    if (bothOn()) return act('request-both', { id, from: periodOf('bd')[0], to: periodOf('bd')[1], amount: O.bdAmount, email: O.bdEmail, custom: (O.custom || {}).both }, (r) => `Breakdown and donation receipt requested from ${r.to} in one email.`, () => { O.bdMail = null; O.both = false; });
+    act('request-breakdown', { id, from: periodOf('bd')[0], to: periodOf('bd')[1], amount: O.bdAmount, email: O.bdEmail, custom: (O.custom || {}).breakdown }, (r) => `Breakdown requested from ${r.to}. They've been emailed a link.`, () => { O.bdMail = null; });
+  });
   $$('[data-pick]').forEach((cb) => cb.addEventListener('change', () => { O.picked[cb.dataset.pick] = cb.checked; }));
   if (open) {
     on('suggest', () => {
@@ -524,18 +792,20 @@ function importedPanel(a, imp, B) {
     ? notice('ok', `<b>Bank payments match the platform:</b> ${money(banked)} paid.`)
     : banked === 0 ? notice('warn', `<b>No bank payments found yet</b> for the ${money(platform)} the platform says was paid. Upload your statements under <a href="#bank">Bank payments</a> to find them.`)
     : notice('warn', `<b>Bank payments ${money(banked)}</b> · platform ${money(platform)} · difference ${money(Math.abs(diff))} ${diff > 0 ? 'not yet found in the bank' : 'more in the bank than on the platform'}. Check under <a href="#bank">Bank payments</a>.`);
-  const docLink = (d, i) => `<li><a href="${esc(d.url)}" target="_blank" rel="noreferrer">Document ${i + 1}${d.type ? ' (' + esc(d.type.toUpperCase()) + ')' : ''}</a>${d.campaign ? ` <span class="note">campaign ${esc(d.campaign)}${/other/i.test(d.attached) ? ', other cause' : ''}</span>` : ''}</li>`;
+  const nUp = 0; // platform documents come first in the viewer
+  const docLink = (d, i) => `<li data-dkey="${esc(d.url)}"><button class="link u" type="button" data-viewdoc="${nUp + i}">Document ${i + 1}${d.type ? ' (' + esc(d.type.toUpperCase()) + ')' : ''}</button>${d.campaign ? ` <span class="note">campaign ${esc(d.campaign)}${/other/i.test(d.attached) ? ', other cause' : ''}</span>` : ''}
+    <span class="note"> · ${viewBtn(nUp + i)} · <button class="link" type="button" data-dlp="${nUp + i}">Download</button> · ${delBtn('doc', d.url, 'Remove')}</span></li>`;
   return `<div class="panel"><h3>Past grant (imported) <span class="pill ${done ? 'p-ok' : 'p-wait'}">${done ? 'Details completed ' + fmtD(a.completed_at) : a.complete_sent_at ? 'Form sent ' + fmtD(a.complete_sent_at) : 'Details to complete'}</span></h3>
     <p class="note" style="margin-top:0">From ${esc(imp.fileName || 'the campaign export')}${imp.fileOrgName && imp.fileOrgName.toUpperCase() !== a.org_name.toUpperCase() ? ` · listed there as “${esc(imp.fileOrgName)}”` : ''}.
       ${camps.length > 1 ? 'Its causes share one pot: the grant is the highest approved amount, paid is everything redeemed.' : ''}</p>
-    <div class="tbl"><table class="mini"><thead><tr><th>Campaign</th><th>Name</th><th class="num">Approved</th><th class="num">Redeemed</th></tr></thead><tbody>
-      ${camps.map((c) => `<tr><td>${esc(c.number)}</td><td>${esc(c.name)}</td><td class="num">${money(c.approved)}</td><td class="num">${money(c.redeemed)}</td></tr>`).join('')}
-      <tr><td></td><td><b>Grant</b></td><td class="num"><b>${money(imp.approved)}</b></td><td class="num"><b>${money(imp.redeemed)}</b></td></tr>
+    <div class="tbl"><table class="mini"><thead><tr><th>Campaign</th><th>Name</th><th class="num">Approved</th><th class="num">Redeemed</th><th></th></tr></thead><tbody>
+      ${camps.map((c) => `<tr><td>${esc(c.number)}</td><td>${esc(c.name)}</td><td class="num">${money(c.approved)}</td><td class="num">${money(c.redeemed)}</td><td>${camps.length > 1 ? delBtn('cause', c.number, 'Remove cause') : ''}</td></tr>`).join('')}
+      <tr><td></td><td><b>Grant</b></td><td class="num"><b>${money(imp.approved)}</b></td><td class="num"><b>${money(imp.redeemed)}</b></td><td></td></tr>
     </tbody></table></div>
     ${check ? `<div style="margin-top:12px">${check}</div>` : ''}
     ${docs.length || consent.length ? `<details style="margin-top:12px" ${docs.length <= 12 ? 'open' : ''}><summary><b>Documents from the platform</b> (${docs.length}${consent.length ? ' + consent form' : ''})</summary>
       <ul style="margin:8px 0 0;padding-left:18px;columns:2;column-gap:28px">${docs.map(docLink).join('')}
-      ${consent.map((u, i) => `<li><a href="${esc(u)}" target="_blank" rel="noreferrer">Consent form${consent.length > 1 ? ' ' + (i + 1) : ''}</a></li>`).join('')}</ul></details>` : '<p class="note">No documents in the export.</p>'}
+      ${consent.map((u, i) => `<li data-dkey="${esc(u)}"><button class="link u" type="button" data-viewdoc="${nUp + docs.length + i}">Consent form${consent.length > 1 ? ' ' + (i + 1) : ''}</button> <span class="note"> · ${viewBtn(nUp + docs.length + i)} · <button class="link" type="button" data-dlp="${nUp + docs.length + i}">Download</button> · ${delBtn('consent', u, 'Remove')}</span></li>`).join('')}</ul></details>` : '<p class="note">No documents in the export.</p>'}
     ${done || club ? (club && !done ? '<p class="note" style="margin-top:14px">For a community account, send the application form from the grants list (Send the application form).</p>' : '') : `<h3 style="margin-top:18px">${ind ? 'Ask them to complete the individual application form' : 'Ask the charity to complete the form'}</h3>
       <p class="note" style="margin-top:0">${ind ? 'They get a link to the online Individual Grant Application Form with their name filled in. They add their details, payment method, ID, proof of bank and an endorser, and sign.'
         : 'They get a link to the application form with their charity details already filled in from the register. They add the applicant, bank details and proof, how the funds are used, and sign.'}</p>
@@ -1163,6 +1433,7 @@ function renderInbox() {
               ${m.application_id ? `<a class="btn" href="#grant/${esc(m.application_id)}">Open ${esc(m.ref || 'the grant')}</a>` : ''}
               ${m.thread_id ? `<a class="btn" href="https://mail.google.com/mail/u/0/#all/${esc(m.thread_id)}" target="_blank" rel="noopener">Open in Gmail ↗</a>` : ''}
               <button class="ghost small" type="button" data-unread="${m.id}">Mark as unread</button>
+              <button class="ghost small" type="button" data-delmsg="${m.id}" style="color:#c0262d;border-color:#c0262d">${IN.confirmDel === m.id ? 'Press again to delete' : 'Delete'}</button>
             </div>
             ${m.source === 'email' && m.thread_id ? `<div style="margin-top:12px;white-space:normal">
               <textarea id="replyText" rows="5" style="width:100%" placeholder="Write a reply… it goes from your Gmail, in the same conversation.">${esc(IN.reply[m.id] || '')}</textarea>
@@ -1189,6 +1460,15 @@ function renderInbox() {
     const m = M.find((x) => x.id === b.dataset.unread);
     await api('inbox-mark', { id: m.id, read: false }); m.read_at = null; d.unread++; setUnread(d.unread); IN.open = null; renderInbox();
   }));
+  $$('[data-delmsg]').forEach((b) => b.addEventListener('click', async () => {
+    const mid = b.dataset.delmsg;
+    if (IN.confirmDel !== mid) { IN.confirmDel = mid; renderInbox(); return; }
+    IN.confirmDel = null;
+    const r = await api('delete', { what: 'message', key: mid }).catch(() => null);
+    if (r && r.ok) { const m = M.find((x) => x.id === mid); if (m && !m.read_at) { d.unread--; setUnread(d.unread); } d.messages = M.filter((x) => x.id !== mid); IN.open = null; IN.msg = { kind: 'ok', text: 'Message deleted.' }; }
+    else IN.msg = { kind: 'bad', text: (r && r.message) || 'Could not delete.' };
+    renderInbox();
+  }));
   const rt = $('#replyText'); if (rt) rt.addEventListener('input', () => { IN.reply[IN.open] = rt.value; });
   $$('[data-reply]').forEach((b) => b.addEventListener('click', async () => {
     const id = b.dataset.reply; IN.busy = 'reply'; renderInbox();
@@ -1199,5 +1479,96 @@ function renderInbox() {
   }));
 }
 
-// Start last, once everything above is defined.
+/* ---------- documents: fetched through the site (signed in), so they always show here and download only when asked ---------- */
+async function fetchDoc(url) {
+  const res = await fetch(url, { headers: await authHeader() });
+  if (!res.ok) { let m = ''; try { m = (await res.json()).message; } catch (e) { /* */ } throw new Error(m || 'Could not open the document (' + res.status + ').'); }
+  return res.blob();
+}
+async function downloadDoc(url, name, btn) {
+  const label = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Downloading…'; }
+  try {
+    const blob = await fetchDoc(url + (url.includes('?') ? '&' : '?') + 'download=1');
+    const href = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = href; a.download = name || 'document'; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(href), 15000);
+  } catch (e) { alertBox(e.message); }
+  if (btn) { btn.disabled = false; btn.textContent = label; }
+}
+function saveBlob(blob, name) {
+  const href = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = href; a.download = name || 'document.pdf'; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 15000);
+}
+function alertBox(text) { FLASH = { kind: 'bad', text }; if (D) renderGrant(); }
+
+/** Draw a PDF's pages as pictures on the page, so no browser or phone turns it into a download. */
+let PDFJS = null;
+async function drawPdf(c, still, el, title) {
+  if (!PDFJS) { PDFJS = await import('/vendor/pdfjs/pdf.min.mjs'); PDFJS.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.mjs'; }
+  if (!c.pdf) c.pdf = await PDFJS.getDocument({ data: new Uint8Array(await (await fetch(c.url)).arrayBuffer()), isEvalSupported: false }).promise;
+  if (!still()) return;
+  const pdf = c.pdf, wrap = document.createElement('div');
+  wrap.className = 'dv-pages'; wrap.setAttribute('aria-label', title);
+  el.innerHTML = ''; el.appendChild(wrap);
+  const width = Math.min(1100, el.clientWidth - 40 || 900);
+  for (let n = 1; n <= pdf.numPages; n++) {
+    const page = await pdf.getPage(n); if (!still()) return;
+    const base = page.getViewport({ scale: 1 }), scale = width / base.width, ratio = window.devicePixelRatio || 1;
+    const vp = page.getViewport({ scale: scale * ratio });
+    const cv = document.createElement('canvas');
+    cv.width = Math.floor(vp.width); cv.height = Math.floor(vp.height); cv.style.width = Math.floor(vp.width / ratio) + 'px';
+    cv.setAttribute('aria-label', `Page ${n} of ${pdf.numPages}`);
+    wrap.appendChild(cv);
+    await page.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+  }
+}
+
+/** View documents on the page; Previous / Next (or arrow keys) through all of them; Esc closes. */
+function openViewer(list, start) {
+  if (!list.length) return;
+  let i = Math.max(0, Math.min(start, list.length - 1)), seq = 0;
+  const cache = {};                          // index -> { url, type } (blob URLs, freed on close)
+  const box = document.createElement('div');
+  box.className = 'dview'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', 'Document viewer');
+  document.body.appendChild(box);
+  const body = (html) => { const el = box.querySelector('.dv-body'); if (el) el.innerHTML = html; };
+  const draw = async () => {
+    const d = list[i], my = ++seq;
+    box.innerHTML = `<div class="dv-bar">
+        <button type="button" class="dv-btn" data-dv="prev" ${i === 0 ? 'disabled' : ''} aria-label="Previous document">‹ Previous</button>
+        <div class="dv-title"><b>${esc(d.title)}</b>${d.key && SCAN.get(d.key) ? ' ' + DSCAN.chipHtml(SCAN.get(d.key), esc) : ''}<span>${i + 1} of ${list.length}</span></div>
+        <button type="button" class="dv-btn" data-dv="next" ${i === list.length - 1 ? 'disabled' : ''} aria-label="Next document">Next ›</button>
+        <span style="flex:1"></span>
+        <button type="button" class="dv-btn" data-dv="download">Download</button>
+        <button type="button" class="dv-btn" data-dv="tab">Open in new tab ↗</button>
+        <button type="button" class="dv-btn" data-dv="close" aria-label="Close">Close ✕</button></div>
+      <div class="dv-body"><p class="dv-hint">Loading…</p></div>`;
+    box.querySelectorAll('[data-dv]').forEach((b) => b.addEventListener('click', () => act2(b.dataset.dv, b)));
+    try {
+      if (!cache[i]) { const blob = d.make ? await d.make() : await fetchDoc(d.api); cache[i] = { url: URL.createObjectURL(blob), type: blob.type, blob }; }
+      if (my !== seq) return;                // moved on while loading
+      const c = cache[i];
+      if (/^image\//.test(c.type)) body(`<img src="${c.url}" alt="${esc(d.title)}">`);
+      else if (c.type === 'application/pdf') { try { await drawPdf(c, () => my === seq, box.querySelector('.dv-body'), d.title); } catch { if (my === seq) body(`<p class="dv-hint" style="font-size:15px">This PDF couldn't be drawn here (it may be damaged or password-protected). Use Download or Open in new tab.</p>`); } }
+      else if (/^text\//.test(c.type)) body(`<iframe src="${c.url}" title="${esc(d.title)}"></iframe>`);
+      else body(`<p class="dv-hint" style="font-size:15px">This kind of file can't be shown here. Use Download to save it.</p>`);
+    } catch (e) {
+      if (my === seq) body(`<p class="dv-hint" style="font-size:15px;color:#ffd2cc">${esc(e.message)}</p>${d.url ? `<p class="dv-hint"><a href="${esc(d.url)}" target="_blank" rel="noreferrer" style="color:#fff">Try opening the original link ↗</a></p>` : ''}`);
+    }
+  };
+  const act2 = (w, btn) => {
+    if (w === 'prev' && i > 0) { i--; draw(); }
+    else if (w === 'next' && i < list.length - 1) { i++; draw(); }
+    else if (w === 'download') { if (cache[i] && (list[i].make || cache[i].blob)) saveBlob(cache[i].blob, list[i].name); else downloadDoc(list[i].api, list[i].name, btn); }
+    else if (w === 'tab') { if (cache[i]) window.open(cache[i].url, '_blank'); else if (list[i].url) window.open(list[i].url, '_blank', 'noopener'); }
+    else if (w === 'close') close();
+  };
+  const key = (e) => { if (e.key === 'Escape') close(); else if (e.key === 'ArrowLeft') act2('prev'); else if (e.key === 'ArrowRight') act2('next'); };
+  const close = () => { document.removeEventListener('keydown', key); box.remove(); Object.values(cache).forEach((c) => { URL.revokeObjectURL(c.url); /* pages are freed with the viewer */ }); };
+  document.addEventListener('keydown', key);
+  draw();
+}
+
 route();

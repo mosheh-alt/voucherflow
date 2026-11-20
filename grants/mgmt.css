@@ -82,3 +82,29 @@ body.mgmt{
 .mgmt .msg .subj{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mgmt .msg .when{font-size:12.5px;color:#6b7280;white-space:nowrap}
 .mgmt .msgbody{grid-column:2/4;white-space:pre-wrap;background:#fafbfd;border:1px solid var(--mline);border-radius:8px;padding:12px 14px;margin-top:6px;font-size:14px;cursor:auto;overflow-wrap:anywhere}
+
+/* document viewer */
+.dview{position:fixed;inset:0;z-index:1000;background:rgba(15,25,40,.86);display:flex;flex-direction:column}
+.dview .dv-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 16px;background:#0f1a2b;color:#fff}
+.dview .dv-title{display:flex;flex-direction:column;min-width:0}
+.dview .dv-title b{font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:46vw}
+.dview .dv-title span{font-size:12px;color:#b8c4d4}
+.dview .dv-btn{all:unset;cursor:pointer;font-size:13.5px;font-weight:700;color:#fff;border:1px solid rgba(255,255,255,.4);border-radius:6px;padding:6px 12px}
+.dview .dv-btn:hover{background:rgba(255,255,255,.12)}
+.dview .dv-btn:focus-visible{outline:3px solid #7FB2DD}
+.dview .dv-btn[disabled]{opacity:.35;cursor:default}
+.dview .dv-body{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:14px;min-height:0;overflow:auto}
+.dview .dv-body:has(.dv-pages){justify-content:flex-start}
+.dview .dv-body iframe{flex:1;width:100%;max-width:1100px;border:0;background:#fff;border-radius:6px}
+.dview .dv-body img{max-width:100%;max-height:calc(100% - 30px);object-fit:contain;background:#fff;border-radius:6px}
+.dview .dv-hint{color:#b8c4d4;font-size:12.5px;margin:8px 0 0}
+
+.dview .dv-pages{display:flex;flex-direction:column;align-items:center;gap:14px;padding:20px 0;width:100%}
+.dview .dv-pages canvas{background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.35);max-width:100%;height:auto}
+
+button.link.u{text-decoration:underline;font-weight:500}
+
+/* Document check codes */
+.dchip{display:inline-flex;align-items:center;gap:4px;font-size:12.5px;color:#2b3445;white-space:nowrap}
+.dcode{display:inline-block;color:#fff;font-weight:700;font-size:11px;letter-spacing:.3px;padding:1px 6px;border-radius:4px;line-height:1.5}
+.dview .dv-title .dchip{color:#fff}

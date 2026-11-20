@@ -102,3 +102,6 @@ body.ind {
   .ind .pfoot { flex-direction: column; align-items: flex-start; gap: 12px; }
   .ind .pfoot img { height: 56px; }
 }
+
+.ind .req { color: #e8521c; font-weight: 600; }
+.ind .pgrp.invalid textarea.pruled { background: repeating-linear-gradient(to bottom, transparent 0, transparent 29px, #c0262d 29px, #c0262d 30px); }

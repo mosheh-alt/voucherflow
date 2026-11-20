@@ -41,6 +41,16 @@ export function createDb(env) {
       });
       if (!res.ok) throw new Error('Upload failed: ' + (await res.text()).slice(0, 200));
     },
+    /** Delete stored files (paths in the "grant-files" bucket). Missing files are fine. */
+    async removeObjects(paths) {
+      if (!paths.length) return;
+      const res = await fetch(base + '/storage/v1/object/grant-files', {
+        method: 'DELETE', headers: { ...auth, 'Content-Type': 'application/json' }, body: JSON.stringify({ prefixes: paths }),
+      });
+      if (!res.ok && res.status !== 404) throw new Error('Could not delete the stored file: ' + (await res.text()).slice(0, 150));
+    },
+    /** Read a stored file (office only). Returns the fetch Response. */
+    download: (path) => fetch(base + '/storage/v1/object/grant-files/' + encodePath(path), { headers: { ...auth } }),
     /** A download link that works for a few minutes (office only). */
     async signedUrl(path, seconds = 300) {
       const res = await fetch(base + '/storage/v1/object/sign/grant-files/' + encodePath(path), {

@@ -47,6 +47,7 @@ export function validateIndividual(f = {}, files = {}) {
   if (F.benefits === 'yes') need('family.benefitsAmount', F.benefitsAmount, 'How much do you receive?');
   if (!G.purposes.length) E['grant.purposes'] = 'Tick at least one.';
   if (G.purposes.includes('Other')) need('grant.other', G.other, 'Please tell us the other purpose.');
+  need('grant.comments', G.comments, 'Please tell us a little more – this helps us make a decision.');
   if (!(G.amount > 0)) E['grant.amount'] = 'Enter the amount you are asking for.';
   if (!G.frequency) E['grant.frequency'] = 'Choose one-off or ongoing.';
   if (!form.method) E.method = 'Choose how you would like to receive the grant.';

@@ -33,9 +33,15 @@ const OFFICE_JSON = {
   'agreement-edit': H.editAgreement,
   'email-preview': H.previewEmail,
   'request-receipt': H.requestDonationReceipt,
+  'request-both': H.requestBoth,
+  'scan-list': H.scanList,
+  'request-view': H.requestView,
+  'request-update': H.requestUpdate,
+  'request-cancel': H.requestCancel,
   'invite': H.inviteToApply,
   'inbox-mark': H.inboxMark,
   'delete-test': H.deleteTest,
+  'delete': H.deleteItem,
   'inbox-reply': H.inboxReply,
   'import-people': H.importPeople,
   'bank-undo': H.bankUndo,
@@ -60,6 +66,9 @@ export async function onRequest({ request, env, params }) {
     }
     if (path === 'office/list' && request.method === 'GET') return json(await H.officeList(env, request));
     if (path === 'office/signatories' && request.method === 'GET') return json(await H.officeSignatories(env, request));
+    const fileM = path.match(/^office\/file\/([\w-]+)$/);
+    if (fileM && request.method === 'GET') return await H.officeFile(env, request, fileM[1], new URL(request.url).searchParams.get('download') === '1');
+    if (path === 'office/doc' && request.method === 'GET') { const q = new URL(request.url).searchParams; return await H.officeDocProxy(env, request, q.get('url'), q.get('download') === '1'); }
     const pdf = path.match(/^office\/pdf\/([\w-]+)$/);
     if (pdf && request.method === 'GET') return await H.officePdf(env, request, pdf[1]);
     const agPdf = path.match(/^office\/agreement-pdf\/([\w-]+)$/);
@@ -81,6 +90,7 @@ export async function onRequest({ request, env, params }) {
 
     const body = await request.json().catch(() => ({}));
     if (path === 'office/email-pdf') return await H.requestEmailPdf(env, request, body);
+    if (path === 'office/request-pdf') return await H.requestViewPdf(env, request, body);
     if (agPdf) return await H.officeAgreementPdf(env, request, agPdf[1], body); // POST: draft with the trustee chosen on screen
     if (path === 'sign') return json(await H.signAgreement(env, body, ip));
     if (PUBLIC_JSON[path]) return json(await PUBLIC_JSON[path](env, body));

@@ -15,7 +15,7 @@ export async function sendEmail(env, mail) {
       html: mail.html,
       replyTo: mail.replyTo || '',
       name: env.EMAIL_FROM_NAME || 'Toirem Grants',
-      attachments: mail.attachments || [], // [{ name, html }] – the mailer turns each into a PDF
+      attachments: mail.attachments || [], // [{ name, html, pdf? }] – a ready-made PDF (base64) is attached as it is (mailer v4); otherwise the mailer turns the html into a PDF
     }),
     redirect: 'follow', // Apps Script answers through a redirect
   });
@@ -140,19 +140,12 @@ export const templates = {
       html: layout('Agreement signed', `<p>${esc(a.signedBy)} signed the grant agreement for ${esc(a.orgName)}. Payments can now be recorded.</p>${button(a.officeUrl, 'Open in Grants Office')}`),
     };
   },
-  breakdownRequest(a) {
-    return {
-      subject: `${a.reminder ? 'Reminder: ' : ''}Please tell us how your Toirem grant was spent (${a.ref})`,
-      html: layout('How was the grant spent?', `<p>Dear ${esc(a.orgName)},</p>
-        <p>During ${esc(periodText(a.from, a.to))} Toirem paid you <b>${gbp(a.total)}</b> under grant ${esc(a.ref)}. As set out in your grant terms, please give us a short breakdown of how it was used.</p>
-        ${a.payments && a.payments.length ? `<table style="border-collapse:collapse;font-size:14px;margin:4px 0 6px">
-          <tr><td style="padding:5px 18px 5px 0;color:#1f2a5c;font-weight:bold">Date paid</td><td style="padding:5px 0;color:#1f2a5c;font-weight:bold;text-align:right">Amount</td></tr>
-          ${a.payments.map((p) => `<tr><td style="padding:4px 18px 4px 0;border-top:1px solid #e3e6ee">${esc(longDate(p.date))}</td><td style="padding:4px 0;border-top:1px solid #e3e6ee;text-align:right">${gbp(p.amount)}</td></tr>`).join('')}
-          <tr><td style="padding:5px 18px 5px 0;border-top:2px solid #1f2a5c;font-weight:bold">Total</td><td style="padding:5px 0;border-top:2px solid #1f2a5c;text-align:right;font-weight:bold">${gbp(a.total)}</td></tr></table>` : ''}
-        <p>Please list what the money was spent on and how much each item cost. We may ask for a receipt or invoice for some of the items.</p>
-        ${button(a.link, 'Fill in the breakdown')}`),
-    };
-  },
+
+  /** Breakdown request. a.custom = { subject, message, note } replaces the wording (edited in the office). */
+  breakdownRequest(a) { return requestMail('breakdown', a); },
+  /** Donation receipt request; same options. */
+  donationReceiptRequest(a) { return requestMail('receipt', a); },
+  combinedRequest(a) { return requestMail('both', a); },
   applicationInvite(a) {
     return {
       subject: 'Apply for a grant from Toirem',
@@ -165,20 +158,7 @@ export const templates = {
         <p>Kind regards,<br>${esc(a.from || 'Toirem')}<br>Toirem Compliance</p>`),
     };
   },
-  donationReceiptRequest(a) {
-    return {
-      subject: `${a.reminder ? 'Reminder: ' : ''}Please send a receipt for Toirem's donations (${a.ref})`,
-      html: layout('Receipt for our donations', `<p>Dear ${esc(a.orgName)},</p>
-        <p>During ${esc(periodText(a.from, a.to))} Toirem donated <b>${gbp(a.total)}</b> to ${esc(a.orgName)} under grant ${esc(a.ref)}.
-        For our records, please send us a receipt confirming you received these donations.</p>
-        ${a.payments && a.payments.length ? `<table style="border-collapse:collapse;font-size:14px;margin:4px 0 6px">
-          <tr><td style="padding:5px 18px 5px 0;color:#1f2a5c;font-weight:bold">Date paid</td><td style="padding:5px 0;color:#1f2a5c;font-weight:bold;text-align:right">Amount</td></tr>
-          ${a.payments.map((p) => `<tr><td style="padding:4px 18px 4px 0;border-top:1px solid #e3e6ee">${esc(longDate(p.date))}</td><td style="padding:4px 0;border-top:1px solid #e3e6ee;text-align:right">${gbp(p.amount)}</td></tr>`).join('')}
-          <tr><td style="padding:5px 18px 5px 0;border-top:2px solid #1f2a5c;font-weight:bold">Total</td><td style="padding:5px 0;border-top:2px solid #1f2a5c;text-align:right;font-weight:bold">${gbp(a.total)}</td></tr></table>` : ''}
-        <p>The receipt should be on your organisation's letterhead and show your charity name and number, the amount and the dates received.</p>
-        ${button(a.link, 'Upload your receipt')}`),
-    };
-  },
+
   donationReceiptReceived(a) {
     return { subject: `Donation receipt received: ${a.orgName} (${a.ref})`, html: layout('Donation receipt received', `<p>${esc(a.orgName)} has uploaded a receipt for ${gbp(a.total)} (${esc(periodText(a.from, a.to))}).</p>${button(a.link, 'Open the grant')}`) };
   },
@@ -482,4 +462,40 @@ export function individualPdfHtml(f, meta, { includeOffice = true, footer = '', 
         <span style="color:#fff">Charity Number:</span> 1206622 <span style="color:${O}">|</span> <span style="color:#fff">Email:</span> cs@toirem.co.uk <span style="color:${O}">|</span> <span style="color:#fff">Tel:</span> 020 8157 2849</td></tr></table>
   </td></tr></table>
   </body></html>`;
+}
+
+/* ---------- monitoring requests (breakdown, donation receipt): editable wording ---------- */
+/** The standard wording of a request, as plain text the office can edit. */
+export function requestParts(kind, a) {
+  const period = periodText(a.from, a.to), amount = gbp(a.total);
+  if (kind === 'both') return {
+    subject: `Your Toirem grant ${a.ref}: how it was spent, and a receipt`,
+    message: `Dear ${a.orgName},\n\nDuring ${period} Toirem paid you ${amount} under grant ${a.ref}. As set out in your grant terms, we need two things from you for our records.`,
+    note: "1. A short breakdown of how the grant was used: what it was spent on and how much each item cost. We may ask for a receipt or invoice for some of the items.\n\n2. A receipt confirming you received these donations, on your organisation's letterhead, showing your charity name and number, the amount and the dates received.\n\nPlease use the two buttons below, one for each.",
+  };
+  return kind === 'receipt' ? {
+    subject: `Please send a receipt for Toirem's donations (${a.ref})`,
+    message: `Dear ${a.orgName},\n\nDuring ${period} Toirem donated ${amount} to ${a.orgName} under grant ${a.ref}. For our records, please send us a receipt confirming you received these donations.`,
+    note: "The receipt should be on your organisation's letterhead and show your charity name and number, the amount and the dates received.",
+  } : {
+    subject: `Please tell us how your Toirem grant was spent (${a.ref})`,
+    message: `Dear ${a.orgName},\n\nDuring ${period} Toirem paid you ${amount} under grant ${a.ref}. As set out in your grant terms, please give us a short breakdown of how it was used.`,
+    note: 'Please list what the money was spent on and how much each item cost. We may ask for a receipt or invoice for some of the items.',
+  };
+}
+const paras = (t) => String(t || '').trim().split(/\n\s*\n/).map((p) => `<p>${esc(p).replace(/\n/g, '<br>')}</p>`).join('');
+function requestMail(kind, a) {
+  const d = requestParts(kind, a), c = a.custom || {};
+  const pick = (k) => (c[k] != null && String(c[k]).trim() !== '' ? String(c[k]) : d[k]);
+  const table = a.payments && a.payments.length ? `<table style="border-collapse:collapse;font-size:14px;margin:4px 0 6px">
+      <tr><td style="padding:5px 18px 5px 0;color:#1f2a5c;font-weight:bold">Date paid</td><td style="padding:5px 0;color:#1f2a5c;font-weight:bold;text-align:right">Amount</td></tr>
+      ${a.payments.map((p) => `<tr><td style="padding:4px 18px 4px 0;border-top:1px solid #e3e6ee">${esc(longDate(p.date))}</td><td style="padding:4px 0;border-top:1px solid #e3e6ee;text-align:right">${gbp(p.amount)}</td></tr>`).join('')}
+      <tr><td style="padding:5px 18px 5px 0;border-top:2px solid #1f2a5c;font-weight:bold">Total</td><td style="padding:5px 0;border-top:2px solid #1f2a5c;text-align:right;font-weight:bold">${gbp(a.total)}</td></tr></table>` : '';
+  return {
+    subject: (a.reminder ? 'Reminder: ' : '') + pick('subject'),
+    html: layout(kind === 'both' ? 'Breakdown and receipt' : kind === 'receipt' ? 'Receipt for our donations' : 'How was the grant spent?',
+      paras(pick('message')) + table + paras(pick('note')) + (kind === 'both'
+        ? button((a.links || {}).breakdown || a.link, '1. Fill in the breakdown') + button((a.links || {}).receipt || a.link, '2. Upload your receipt')
+        : button(a.link, kind === 'receipt' ? 'Upload your receipt' : 'Fill in the breakdown'))),
+  };
 }

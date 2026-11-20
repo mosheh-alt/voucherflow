@@ -3,6 +3,7 @@
    /grants/individual.html               a new application
    /grants/individual.html#complete/<t>  completing a past grant imported from the platform
    ===================================================================== */
+import { individualPdf } from './indpdf.js';
 import { $, $$, esc, today, frame, notice, field, select, radio, fileField, sigPicker, getJSON, postJSON, postForm } from './ui.js';
 import { IND_TITLES, MARITAL, INCOME, PURPOSES, FREQUENCY, IND_METHODS, validateIndividual } from '/grants-server/individual.js';
 
@@ -64,8 +65,8 @@ function page1() {
   ${grp('grant.purposes', `<div class="prow" style="gap:8px 22px">${PURPOSES.filter((x) => x !== 'Other').map((x) => circle('purpose', x, g.purposes.includes(x), x, 'checkbox', `data-purpose="${esc(x)}"`)).join('')}
     ${circle('purpose', 'Other', g.purposes.includes('Other'), 'Other', 'checkbox', 'data-purpose="Other"')}</div>`)}
   <div class="pl">${inl('grant.other', 'Other', g.other, { flex: '1 1 100%', ph: g.purposes.includes('Other') ? 'Please specify' : '' })}</div>
-  <p class="pnote" style="margin-top:20px">Please provide any additional comments or information that may help us make a decision</p>
-  <textarea class="pruled" id="grant.comments" data-k="grant.comments" rows="3">${esc(g.comments)}</textarea>
+  <p class="pnote" style="margin-top:20px">Please provide any additional comments or information that may help us make a decision <span class="req">*</span></p>
+  <div class="pgrp ${E()['grant.comments'] ? 'invalid' : ''}"><textarea class="pruled" id="grant.comments" data-k="grant.comments" rows="3" aria-required="true">${esc(g.comments)}</textarea>${er('grant.comments')}</div>
 
   <div class="pl q" style="margin-top:26px"><h2 class="ph" style="margin:0">7. Amount of grant requested?:</h2>
     ${inl('grant.amount', '£', g.amount, { type: 'number', flex: '0 1 120px' })}
@@ -184,6 +185,13 @@ async function next() {
   fd.set('form', JSON.stringify(S.test ? { ...S.f, test: true } : S.f));
   if (S.complete) fd.set('token', S.complete.token);
   for (const [k, f] of Object.entries(S.files)) if (f) fd.set(k, f);
+  // A copy in the paper-form design for the confirmation emails. Never holds up the application.
+  try {
+    const docs = [['proof', 'Proof of bank'], ['id', 'ID'], ['benefits', 'Benefits letter']].filter(([k]) => S.files[k]).map(([, l]) => l);
+    const when = new Date().toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
+    const pdf = await Promise.race([individualPdf(S.f, { submitted: when, docs }, { office: false }), new Promise((_, no) => setTimeout(() => no(new Error('slow')), 15000))]);
+    fd.set('formpdf', new Blob([pdf], { type: 'application/pdf' }), 'application.pdf');
+  } catch (e) { /* the emails then use the standard copy */ }
   const r = await postForm('individual', fd);
   S.busy = '';
   if (r.ok) { S.done = r.ref; render(); scrollTo(0, 0); return; }

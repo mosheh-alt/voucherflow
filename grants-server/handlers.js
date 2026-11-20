@@ -11,7 +11,7 @@
 import { createDb, newToken, stableToken, hashToken, checkFile, storeFile } from './supabase.js';
 import { checkCharity, CharityNotFound, getTrustees, newProblems, TOIREM_CHARITY_NUMBER, probe, searchCharities, quickCheck } from './charity.js';
 import { lookupPostcode } from './postcode.js';
-import { sendEmail, templates, officeLink, recipientLink, siteUrl, applicationDetailsHtml, applicationPdfHtml, pdfName, makePdf, footerImage, siteImage, agreementPdfHtml, individualPdfHtml, mailer } from './email.js';
+import { sendEmail, templates, officeLink, recipientLink, siteUrl, applicationDetailsHtml, applicationPdfHtml, pdfName, makePdf, footerImage, siteImage, agreementPdfHtml, individualPdfHtml, mailer, requestParts } from './email.js';
 import { validateApplication } from './validate.js';
 import { DEFAULT_TERMS } from './terms.js';
 import { validateIndividual, individualName, purposeText } from './individual.js';
@@ -374,7 +374,7 @@ export async function officeGrant(env, request, body) {
   ]);
   const st = stateOf({ ...a, agreements: a.agreement });
   if (a.cc_check) delete a.cc_check.raw;
-  const withLinks = await Promise.all(files.slice(0, 40).map(async (f) => ({ id: f.id, kind: f.kind, name: f.original_name, url: await db.signedUrl(f.storage_path) })));
+  const withLinks = await Promise.all(files.slice(0, 40).map(async (f) => ({ id: f.id, kind: f.kind, name: f.original_name, url: await db.signedUrl(f.storage_path, 1800) })));
   return { ok: true, threshold: t, status: statusOf(st, t), grant: a, files: withLinks,
     agreement: a.agreement ? agreementData(a, a.agreement, await standardTerms(db)) : null, standardTerms: (await standardTerms(db)) || DEFAULT_TERMS };
 }
@@ -503,7 +503,7 @@ export async function requestBreakdown(env, request, body) {
   const m = await requestEmail(env, db, { ...body, kind: 'breakdown', link: recipientLink(env, 'breakdown', token) });
   if (m.a.breakdowns.some((x) => x.status !== 'closed')) throw new UserError('A breakdown is already open for this grant.');
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m.to_ || '')) throw new UserError('Enter a valid email address.');
-  await db.insert('breakdowns', [{ id, application_id: m.a.id, period_from: m.from, period_to: m.to, total_paid: m.total, token_hash: await hashToken(token) }], { returning: false });
+  await db.insert('breakdowns', [{ id, application_id: m.a.id, period_from: m.from, period_to: m.to, total_paid: m.total, token_hash: await hashToken(token), sent_to: m.to_, email: m.custom }], { returning: false });
   await sendEmail(env, { to: m.to_, subject: m.subject, html: m.html });
   return { ok: true, to: m.to_ };
 }
@@ -546,16 +546,28 @@ export async function cronReminders(env, now = new Date()) {
   const LIMIT = 6;
   let sent = 0, remaining = 0;
 
-  const bds = await db.select('breakdowns?select=*,breakdown_lines(description,amount,proof_requested,proof_file_id),applications(ref,org_name,applicant_email)&status=in.(requested,proof_requested)');
+  const bds = await db.select('breakdowns?select=*,breakdown_lines(description,amount,proof_requested,proof_file_id),applications(ref,org_name,applicant_email,payments(paid_on,amount))&status=in.(requested,proof_requested)');
+  const rrs = await db.select('receipt_requests?select=*,applications(id,ref,org_name,applicant_email,payments(paid_on,amount))&received_at=is.null');
+  const remindedTogether = new Set();
   for (const b of bds.filter((x) => due(x.last_reminded_at, x.status === 'requested' ? x.requested_on : x.submitted_at))) {
     if (sent >= LIMIT) { remaining++; continue; }
     const a = one(b.applications);
+    // Sent as one email with a receipt request that is still waiting: remind for both in one email.
+    const rr = b.status === 'requested' && b.email && b.email.pair ? rrs.find((x) => x.id === b.email.pair && x.email && x.email.pair === b.id) : null;
+    if (rr) {
+      const [bt, rt] = [await stableToken(env, 'breakdown', b.id), await stableToken(env, 'receipt', rr.id)];
+      await db.update('breakdowns', 'id=eq.' + b.id, { token_hash: await hashToken(bt), last_reminded_at: now.toISOString() });
+      await db.update('receipt_requests', 'id=eq.' + rr.id, { token_hash: await hashToken(rt), last_reminded_at: now.toISOString() });
+      const payments = (a.payments || []).filter((p) => p.paid_on >= b.period_from && p.paid_on <= b.period_to).map((p) => ({ date: p.paid_on, amount: Number(p.amount) }));
+      await sendEmail(env, { to: b.sent_to || a.applicant_email, ...templates.combinedRequest({ ref: a.ref, orgName: a.org_name, from: b.period_from, to: b.period_to, total: Number(b.total_paid), payments, custom: b.email.both || null, links: { breakdown: recipientLink(env, 'breakdown', bt), receipt: recipientLink(env, 'receipt', rt) }, reminder: true }) });
+      remindedTogether.add(rr.id); sent++; continue;
+    }
     const token = await stableToken(env, b.status === 'requested' ? 'breakdown' : 'proof', b.id); // same link as the first email
     await db.update('breakdowns', 'id=eq.' + b.id, { token_hash: await hashToken(token), last_reminded_at: now.toISOString() });
     const mail = b.status === 'requested'
-      ? templates.breakdownRequest({ ref: a.ref, orgName: a.org_name, from: b.period_from, to: b.period_to, total: Number(b.total_paid), link: recipientLink(env, 'breakdown', token), reminder: true })
+      ? templates.breakdownRequest({ ref: a.ref, orgName: a.org_name, from: b.period_from, to: b.period_to, total: Number(b.total_paid), custom: wording(b.email), link: recipientLink(env, 'breakdown', token), reminder: true })
       : templates.proofRequest({ ref: a.ref, orgName: a.org_name, lines: b.breakdown_lines.filter((l) => l.proof_requested && !l.proof_file_id).map((l) => ({ description: l.description, amount: Number(l.amount) })), link: recipientLink(env, 'proof', token), reminder: true });
-    await sendEmail(env, { to: a.applicant_email, ...mail }); sent++;
+    await sendEmail(env, { to: b.sent_to || a.applicant_email, ...mail }); sent++;
   }
 
   const recs = await db.select('invoice_receipts?select=id,requested_at,last_reminded_at,receipt_file_id,bank_confirmation_id,invoice:files!invoice_file_id(original_name),applications(id,ref,org_name,applicant_email,route_override)&requested_at=not.is.null');
@@ -573,15 +585,14 @@ export async function cronReminders(env, now = new Date()) {
     await sendEmail(env, { to: a.applicant_email, ...templates.receiptsRequest({ ref: a.ref, orgName: a.org_name, invoices: rows.map((r) => one(r.invoice).original_name), link: recipientLink(env, 'receipts', token), reminder: true }) });
     sent++;
   }
-  const rrs = await db.select('receipt_requests?select=*,applications(id,ref,org_name,applicant_email,payments(paid_on,amount))&received_at=is.null');
   const inbox = await cronInbox(env);
-  for (const r of rrs.filter((x) => due(x.last_reminded_at, x.requested_on))) {
+  for (const r of rrs.filter((x) => !remindedTogether.has(x.id) && due(x.last_reminded_at, x.requested_on))) {
     if (sent >= LIMIT) { remaining++; continue; }
     const a = one(r.applications);
     const token = await stableToken(env, 'receipt', r.id);
     await db.update('receipt_requests', 'id=eq.' + r.id, { token_hash: await hashToken(token), last_reminded_at: now.toISOString() });
     const payments = (a.payments || []).filter((p) => p.paid_on >= r.period_from && p.paid_on <= r.period_to).map((p) => ({ date: p.paid_on, amount: Number(p.amount) }));
-    await sendEmail(env, { to: r.sent_to || a.applicant_email, ...templates.donationReceiptRequest({ ref: a.ref, orgName: a.org_name, from: r.period_from, to: r.period_to, total: Number(r.total), payments, link: recipientLink(env, 'receipt', token), reminder: true }) });
+    await sendEmail(env, { to: r.sent_to || a.applicant_email, ...templates.donationReceiptRequest({ ref: a.ref, orgName: a.org_name, from: r.period_from, to: r.period_to, total: Number(r.total), payments, custom: wording(r.email), link: recipientLink(env, 'receipt', token), reminder: true }) });
     sent++;
   }
   return { ok: true, sent, remaining, inbox };
@@ -962,21 +973,25 @@ async function requestEmail(env, db, body) {
   const entered = Math.round(Number(body.amount) * 100) / 100;
   const total = payments.length ? Math.round(payments.reduce((s, p) => s + p.amount, 0) * 100) / 100 : entered;
   if (!(total > 0)) throw new UserError('There are no payments recorded in that period. Enter the amount paid.');
-  const kind = body.kind === 'receipt' ? 'receipt' : 'breakdown';
-  const link = body.link || siteUrl(env) + '/grants/link.html#' + kind + '/…';
-  const mail = (kind === 'receipt' ? templates.donationReceiptRequest : templates.breakdownRequest)({ ref: a.ref, orgName: a.org_name, from, to, total, payments, link });
+  const kind = body.kind === 'receipt' || body.kind === 'both' ? body.kind : 'breakdown';
+  const ph = (k) => siteUrl(env) + '/grants/link.html#' + k + '/…';
+  const link = body.link || ph(kind === 'both' ? 'breakdown' : kind);
+  const links = body.links || { breakdown: ph('breakdown'), receipt: ph('receipt') };
+  const custom = cleanCustom(body.custom);
+  const info = { ref: a.ref, orgName: a.org_name, from, to, total, payments, link, links, custom };
+  const mail = (kind === 'receipt' ? templates.donationReceiptRequest : kind === 'both' ? templates.combinedRequest : templates.breakdownRequest)(info);
   const sendTo = String(body.email || '').trim() || a.applicant_email;
-  return { a, kind, from, to, total, payments, to_: sendTo, ...mail };
+  return { a, kind, from, to, total, payments, to_: sendTo, custom, parts: { ...requestParts(kind, info), ...(custom || {}) }, ...mail };
 }
 export async function previewEmail(env, request, body) {
   const { db } = await requireStaff(env, request);
   const m = await requestEmail(env, db, body);
-  return { ok: true, to: m.to_, subject: m.subject, html: m.html };
+  return { ok: true, to: m.to_, subject: m.subject, html: m.html, parts: m.parts };
 }
 export async function requestEmailPdf(env, request, body) {
   const { db } = await requireStaff(env, request);
   const m = await requestEmail(env, db, body);
-  const name = pdfName(m.a.ref + (m.kind === 'receipt' ? ' Receipt request' : ' Breakdown request'), m.a.org_name);
+  const name = pdfName(m.a.ref + (m.kind === 'receipt' ? ' Receipt request' : m.kind === 'both' ? ' Breakdown and receipt request' : ' Breakdown request'), m.a.org_name);
   const t = (x) => String(x || '').replace(/</g, '&lt;');
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${t(m.subject)}</title></head><body style="margin:28px">
     <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#666;border-bottom:1px solid #ddd;padding-bottom:8px;margin-bottom:16px">
@@ -993,9 +1008,26 @@ export async function requestDonationReceipt(env, request, body) {
   const m = await requestEmail(env, db, { ...body, kind: 'receipt', link: recipientLink(env, 'receipt', token) });
   if (m.a.receipt_requests.some((r) => !r.received_at && r.period_from === m.from && r.period_to === m.to)) throw new UserError('A receipt for that period has already been requested.');
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m.to_ || '')) throw new UserError('Enter a valid email address.');
-  await db.insert('receipt_requests', [{ id, application_id: m.a.id, period_from: m.from, period_to: m.to, total: m.total, sent_to: m.to_, token_hash: await hashToken(token) }], { returning: false });
+  await db.insert('receipt_requests', [{ id, application_id: m.a.id, period_from: m.from, period_to: m.to, total: m.total, sent_to: m.to_, token_hash: await hashToken(token), email: m.custom }], { returning: false });
   await sendEmail(env, { to: m.to_, subject: m.subject, html: m.html });
   return { ok: true, to: m.to_, link: recipientLink(env, 'receipt', token) };
+}
+
+/** One email asking for both the breakdown and the donation receipt for the same period.
+ * Two requests are opened as usual (each with its own link and tracking); they are paired, so reminders go out as one email too. */
+export async function requestBoth(env, request, body) {
+  const { db } = await requireStaff(env, request);
+  const bid = crypto.randomUUID(), rid = crypto.randomUUID();
+  const bTok = await stableToken(env, 'breakdown', bid), rTok = await stableToken(env, 'receipt', rid);
+  const m = await requestEmail(env, db, { ...body, kind: 'both', links: { breakdown: recipientLink(env, 'breakdown', bTok), receipt: recipientLink(env, 'receipt', rTok) } });
+  if (m.a.kind === 'individual') throw new UserError('Donation receipts are only asked from charities.');
+  if (m.a.breakdowns.some((x) => x.status !== 'closed')) throw new UserError('A breakdown is already open for this grant. Ask for the receipt on its own.');
+  if (m.a.receipt_requests.some((r) => !r.received_at && r.period_from === m.from && r.period_to === m.to)) throw new UserError('A receipt for that period has already been requested. Ask for the breakdown on its own.');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m.to_ || '')) throw new UserError('Enter a valid email address.');
+  await db.insert('breakdowns', [{ id: bid, application_id: m.a.id, period_from: m.from, period_to: m.to, total_paid: m.total, token_hash: await hashToken(bTok), sent_to: m.to_, email: { pair: rid, both: m.custom } }], { returning: false });
+  await db.insert('receipt_requests', [{ id: rid, application_id: m.a.id, period_from: m.from, period_to: m.to, total: m.total, sent_to: m.to_, token_hash: await hashToken(rTok), email: { pair: bid, both: m.custom } }], { returning: false });
+  await sendEmail(env, { to: m.to_, subject: m.subject, html: m.html });
+  return { ok: true, to: m.to_ };
 }
 
 /** The charity uploads its receipt(s): several files at once, and the link keeps working so more can be added. */
@@ -1072,6 +1104,15 @@ export async function importPeople(env, request, body) {
 
 const FILE_LABEL = { bank_proof: 'Proof of bank', id_document: 'ID', benefits_letter: 'Benefits letter' };
 
+/** The application PDF the applicant's browser made (paper-form design), as base64; null if missing or not a PDF. */
+async function formPdf(v) {
+  if (!v || typeof v === 'string' || !v.arrayBuffer || v.size > 4 * 1024 * 1024) return null;
+  const b = new Uint8Array(await v.arrayBuffer());
+  if (!(b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46)) return null;
+  let s = ''; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
 /** The individual application form: a new application, or completing an imported past grant (token). */
 export async function submitIndividual(env, formData, ip) {
   const db = createDb(env);
@@ -1107,10 +1148,11 @@ export async function submitIndividual(env, formData, ip) {
   const meta = { ref: a.ref, submitted: londonTime(new Date()), docs: kinds, approved: a.approved_amount == null ? null : Number(a.approved_amount) };
   const logo = await siteImage(env, 'toirem-logo-light.png');
   const file = pdfName(a.ref, name);
+  const madePdf = await formPdf(formData.get('formpdf'));   // the paper-form design, made in the applicant's browser
   const info = { ref: a.ref, name, amount: f.grant.amount, frequency: f.grant.frequency, purpose: purposeText(f), endorser: [f.endorser.name, f.endorser.position, f.endorser.phone].filter(Boolean).join(', '), officeUrl: officeLink(env, a.id), completed: !!token };
-  try { if (env.OFFICE_EMAIL) await sendEmail(env, { to: env.OFFICE_EMAIL, replyTo: f.person.email, attachments: [{ name: file, html: individualPdfHtml(f, meta, { logo }) }], ...templates.individualReceived(info) }); }
+  try { if (env.OFFICE_EMAIL) await sendEmail(env, { to: env.OFFICE_EMAIL, replyTo: f.person.email, attachments: [{ name: file, html: individualPdfHtml(f, meta, { logo }), ...(madePdf ? { pdf: madePdf } : {}) }], ...templates.individualReceived(info) }); }
   catch (e) { console.error('office email', e); }
-  try { await sendEmail(env, { to: test ? env.OFFICE_EMAIL : f.person.email, attachments: [{ name: file, html: individualPdfHtml(f, meta, { includeOffice: false, logo }) }], ...templates.individualConfirmation(info) }); }
+  try { await sendEmail(env, { to: test ? env.OFFICE_EMAIL : f.person.email, attachments: [{ name: file, html: individualPdfHtml(f, meta, { includeOffice: false, logo }), ...(madePdf ? { pdf: madePdf } : {}) }], ...templates.individualConfirmation(info) }); }
   catch (e) { console.error('applicant email', e); }
   await note(db, { applicationId: a.id, ref: a.ref, fromName: name, fromEmail: f.person.email, subject: `${token ? 'Individual form completed' : 'New individual application'}: ${name} (${a.ref})`, body: `${name} asked for £${f.grant.amount} (${f.grant.frequency}).\nPurpose: ${purposeText(f)}` });
   return { ok: true, ref: a.ref };
@@ -1200,4 +1242,221 @@ export async function deleteTest(env, request, body) {
   await db.remove('messages', 'application_id=eq.' + a.id).catch(() => {});
   await db.remove('applications', 'id=eq.' + a.id);
   return { ok: true };
+}
+
+/* ---------- view, PDF, edit and cancel a monitoring request that was sent ---------- */
+/** Only the wording fields of a stored request email (not the pairing details). */
+function wording(e) { return e && (e.subject || e.message || e.note) ? { subject: e.subject, message: e.message, note: e.note } : null; }
+function cleanCustom(c) {
+  if (!c || typeof c !== 'object') return null;
+  const out = {};
+  for (const [k, n] of [['subject', 200], ['message', 6000], ['note', 3000]]) { const v = String(c[k] == null ? '' : c[k]).replace(/\r\n/g, '\n').trim().slice(0, n); if (v) out[k] = v; }
+  return Object.keys(out).length ? out : null;
+}
+/** The request row and the email as it was sent (the link is shown as a placeholder). */
+async function sentRequest(env, db, body) {
+  const kind = body.kind === 'receipt' ? 'receipt' : 'breakdown';
+  const table = kind === 'receipt' ? 'receipt_requests' : 'breakdowns';
+  const r = await db.one(table + '?select=*&id=eq.' + encodeURIComponent(String(body.itemId || '')));
+  if (!r) throw new UserError('That request was not found.');
+  const a = await loadGrant(db, r.application_id);
+  const total = Number(kind === 'receipt' ? r.total : r.total_paid);
+  const payments = a.payments.filter((p) => p.paid_on >= r.period_from && p.paid_on <= r.period_to).map((p) => ({ date: p.paid_on, amount: Number(p.amount) }));
+  const open = kind === 'receipt' ? !r.received_at : r.status === 'requested';
+  // Sent together with its partner request (breakdown + receipt in one email)?
+  const partner = r.email && r.email.pair ? (kind === 'receipt' ? a.breakdowns : a.receipt_requests).find((x) => x.id === r.email.pair) : null;
+  const paired = !!(partner && partner.email && partner.email.pair === r.id);
+  const custom = paired ? (r.email.both || null) : wording(r.email);
+  const ph = (k) => siteUrl(env) + '/grants/link.html#' + k + '/…';
+  const info = { ref: a.ref, orgName: a.org_name, from: r.period_from, to: r.period_to, total, payments, custom, link: ph(kind), links: { breakdown: ph('breakdown'), receipt: ph('receipt') } };
+  const mail = (paired ? templates.combinedRequest : kind === 'receipt' ? templates.donationReceiptRequest : templates.breakdownRequest)(info);
+  return { kind, table, r, a, total, open, paired, to: r.sent_to || a.applicant_email, parts: { ...requestParts(paired ? 'both' : kind, info), ...(custom || {}) }, singleParts: { ...requestParts(kind, info), ...(paired ? {} : custom || {}) }, ...mail };
+}
+export async function requestView(env, request, body) {
+  const { db } = await requireStaff(env, request);
+  const m = await sentRequest(env, db, body);
+  return { ok: true, kind: m.kind, to: m.to, subject: m.subject, html: m.html, parts: m.parts, from: m.r.period_from, toDate: m.r.period_to, total: m.total, open: m.open,
+    sentOn: m.r.requested_on, lastReminded: m.r.last_reminded_at, paired: m.paired, singleParts: m.singleParts };
+}
+export async function requestViewPdf(env, request, body) {
+  const { db } = await requireStaff(env, request);
+  const m = await sentRequest(env, db, body);
+  const name = pdfName(m.a.ref + (m.kind === 'receipt' ? ' Receipt request' : ' Breakdown request'), m.a.org_name);
+  const t = (x) => String(x || '').replace(/</g, '&lt;');
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${t(m.subject)}</title></head><body style="margin:28px">
+    <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#666;border-bottom:1px solid #ddd;padding-bottom:8px;margin-bottom:16px">
+      <b>To:</b> ${t(m.to)}<br><b>Subject:</b> ${t(m.subject)}<br><b>Sent:</b> ${t(m.r.requested_on)}</div>${m.html}</body></html>`;
+  const bytes = await makePdf(env, html, name).catch((e) => { throw new UserError(e.message); });
+  return new Response(bytes, { headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${name}"`, 'Cache-Control': 'no-store' } });
+}
+/** Change a request that is still waiting (period, amount, email, wording); optionally send it again with the same link. */
+export async function requestUpdate(env, request, body) {
+  const { db } = await requireStaff(env, request);
+  const cur = await sentRequest(env, db, body);
+  if (!cur.open) throw new UserError(cur.kind === 'receipt' ? 'The receipt has already been received.' : 'The breakdown has already been sent back, so the request can no longer be changed.');
+  const token = await stableToken(env, cur.kind, cur.r.id);
+  const m = await requestEmail(env, db, { id: cur.a.id, kind: cur.kind, from: body.from, to: body.to, amount: body.amount, email: body.email, custom: body.custom, link: recipientLink(env, cur.kind, token) });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m.to_ || '')) throw new UserError('Enter a valid email address.');
+  const patch = { period_from: m.from, period_to: m.to, sent_to: m.to_, email: m.custom, token_hash: await hashToken(token), [cur.kind === 'receipt' ? 'total' : 'total_paid']: m.total };
+  if (body.resend) Object.assign(patch, { requested_on: today(), last_reminded_at: null });
+  await db.update(cur.table, 'id=eq.' + cur.r.id, patch);
+  if (body.resend) await sendEmail(env, { to: m.to_, subject: m.subject, html: m.html });
+  return { ok: true, to: m.to_, resent: !!body.resend };
+}
+export async function requestCancel(env, request, body) {
+  const { db } = await requireStaff(env, request);
+  const cur = await sentRequest(env, db, body);
+  if (!cur.open) throw new UserError('This request has already been answered, so it can no longer be cancelled.');
+  await db.remove(cur.table, 'id=eq.' + cur.r.id);
+  return { ok: true };
+}
+
+/* =========================== DOCUMENT CHECK (read-only) =========================== */
+/** Every grant with its documents, for the office's Document check (it reads them in the browser; nothing is saved here). */
+export async function scanList(env, request) {
+  const { db } = await requireStaff(env, request);
+  const apps = [];
+  for (let off = 0; off < 20000; off += 500) {               // in pages: the database returns at most 1,000 rows at a time
+    const page = await db.select('applications?select=id,ref,kind,org_name,applicant_name,form,imported,created_at,files(id,kind,original_name)&order=created_at.asc&limit=500&offset=' + off);
+    apps.push(...page); if (page.length < 500) break;
+  }
+  return { ok: true, grants: apps.map((a) => {
+    const imp = a.imported || {}, f = a.form || {}, p = f.person || {};
+    const person = [p.title, p.first, p.last].filter(Boolean).join(' ');
+    return {
+      id: a.id, ref: a.ref, kind: a.kind === 'individual' ? 'individual' : 'charity',
+      name: a.kind === 'individual' ? (person || a.org_name || a.applicant_name || '') : (a.org_name || ''),
+      alt: [a.applicant_name, imp.fileOrgName, ...((imp.campaigns || []).map((c) => c.name))].filter(Boolean),
+      docs: [
+        ...(imp.docs || []).map((d, i) => ({ key: d.url, url: d.url, title: 'Document ' + (i + 1), source: 'platform' })),
+        ...(imp.consent || []).map((u, i) => ({ key: u, url: u, title: 'Consent form' + ((imp.consent || []).length > 1 ? ' ' + (i + 1) : ''), source: 'consent' })),
+        ...(a.files || []).map((x) => ({ key: 'file:' + x.id, fileId: x.id, title: x.original_name, fileKind: x.kind, source: 'upload' })),
+      ],
+    };
+  }).filter((g) => g.docs.length) };
+}
+
+/* =========================== DELETE =========================== */
+/**
+ * Delete one thing from a grant (or the grant itself).
+ * what: file (uploaded document), doc (platform document link), consent, cause (imported cause), payment, message, grant
+ */
+export async function deleteItem(env, request, body) {
+  const { db } = await requireStaff(env, request);
+  const what = String(body.what || '');
+  if (what === 'message') {
+    const gone = await db.remove('messages', 'id=eq.' + encodeURIComponent(String(body.key || '')));
+    if (!gone.length) throw new UserError('That message was not found.');
+    return { ok: true, message: 'Message deleted.' };
+  }
+  const a = await loadGrant(db, body.id);
+  const signed = a.agreement && a.agreement.status === 'signed';
+
+  if (what === 'grant') {
+    if (String(body.confirm || '').trim().toUpperCase() !== a.ref.toUpperCase()) throw new UserError('Type the grant reference ' + a.ref + ' to delete it.');
+    const files = await db.select('files?select=storage_path&application_id=eq.' + a.id);
+    await db.removeObjects(files.map((f) => f.storage_path)).catch((e) => console.error('delete files', e));
+    // Bank statement lines added to this grant go back to "To check".
+    await db.update('bank_lines', 'application_id=eq.' + a.id, { status: 'pending', application_id: null, auto_added: false, decided_at: null }).catch(() => {});
+    await db.remove('payee_matches', 'application_id=eq.' + a.id).catch(() => {});
+    await db.remove('messages', 'application_id=eq.' + a.id).catch(() => {});
+    await db.remove('applications', 'id=eq.' + a.id);
+    return { ok: true, message: `${a.ref} ${a.org_name} deleted.`, deletedGrant: true };
+  }
+
+  if (what === 'file') {
+    const f = await db.one('files?select=*&application_id=eq.' + a.id + '&id=eq.' + encodeURIComponent(String(body.key || '')));
+    if (!f) throw new UserError('That document was not found.');
+    // Clear anything pointing at it, then delete the record and the stored file.
+    await Promise.all([
+      db.update('invoice_receipts', 'receipt_file_id=eq.' + f.id, { receipt_file_id: null }).catch(() => {}),
+      db.update('invoice_receipts', 'bank_confirmation_id=eq.' + f.id, { bank_confirmation_id: null }).catch(() => {}),
+      db.update('breakdown_lines', 'proof_file_id=eq.' + f.id, { proof_file_id: null }).catch(() => {}),
+    ]);
+    for (const r of a.receipt_requests || []) {
+      const ids = (r.file_ids || []).filter((x) => x !== f.id);
+      if (ids.length !== (r.file_ids || []).length || r.file_id === f.id) {
+        await db.update('receipt_requests', 'id=eq.' + r.id, { file_ids: ids, file_id: ids[0] || null, received_at: ids.length ? r.received_at : null });
+      }
+    }
+    const inv = (a.invoice_receipts || []).find((x) => x.invoice_file_id === f.id);
+    if (inv) await db.remove('invoice_receipts', 'id=eq.' + inv.id);
+    await db.remove('files', 'id=eq.' + f.id);
+    await db.removeObjects([f.storage_path]).catch((e) => console.error('delete file', e));
+    return { ok: true, message: `Document “${f.original_name}” deleted.` };
+  }
+
+  if (what === 'doc' || what === 'consent' || what === 'cause') {
+    if (a.source !== 'import' || !a.imported) throw new UserError('Only imported grants have platform documents and causes.');
+    const imp = { ...a.imported };
+    if (what === 'doc') imp.docs = (imp.docs || []).filter((d) => d.url !== body.key);
+    if (what === 'consent') imp.consent = (imp.consent || []).filter((u) => u !== body.key);
+    const patch = {};
+    if (what === 'cause') {
+      const left = (imp.campaigns || []).filter((c) => String(c.number) !== String(body.key));
+      if (left.length === (imp.campaigns || []).length) throw new UserError('That cause was not found.');
+      if (!left.length) throw new UserError('This is the only cause. Delete the whole grant instead.');
+      imp.campaigns = left;
+      imp.docs = (imp.docs || []).filter((d) => String(d.campaign) !== String(body.key) || /other/i.test(d.attached));
+      imp.approved = Math.round(Math.max(0, ...left.map((c) => Number(c.approved) || 0)) * 100) / 100;
+      imp.redeemed = Math.round(left.reduce((t, c) => t + (Number(c.redeemed) || 0), 0) * 100) / 100;
+      if (!signed) patch.approved_amount = imp.approved > 0 ? imp.approved : null;
+    }
+    await db.update('applications', 'id=eq.' + a.id, { ...patch, imported: imp });
+    return { ok: true, message: what === 'cause' ? `Cause ${body.key} removed. Approved is now £${imp.approved.toLocaleString('en-GB', { minimumFractionDigits: 2 })}, paid £${imp.redeemed.toLocaleString('en-GB', { minimumFractionDigits: 2 })}.` : 'Document link removed.' };
+  }
+
+  if (what === 'payment') {
+    const p = a.payments.find((x) => x.id === body.key);
+    if (!p) throw new UserError('That payment was not found.');
+    if (p.bank_key) await db.update('bank_lines', 'bank_key=eq.' + p.bank_key, { status: 'pending', application_id: null, auto_added: false, decided_at: null }).catch(() => {});
+    await db.remove('payments', 'id=eq.' + p.id);
+    return { ok: true, message: `Payment of £${Number(p.amount).toFixed(2)} on ${p.paid_on} deleted.` + (p.bank_key ? ' It is back under Bank payments › To check.' : '') };
+  }
+  throw new UserError('Nothing to delete.');
+}
+
+/* ---------- documents for the office: always served so the browser can show them ---------- */
+const TYPES = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', heic: 'image/heic', txt: 'text/plain' };
+/** Work out the file type from its first bytes (some stores send everything as "download"). */
+function sniff(bytes, name) {
+  const b = new Uint8Array(bytes.slice(0, 12));
+  const s = String.fromCharCode(...b);
+  if (s.startsWith('%PDF')) return 'application/pdf';
+  if (b[0] === 0xff && b[1] === 0xd8) return 'image/jpeg';
+  if (s.startsWith('\x89PNG')) return 'image/png';
+  if (s.startsWith('GIF8')) return 'image/gif';
+  if (s.startsWith('RIFF') && s.slice(8, 12) === 'WEBP') return 'image/webp';
+  const ext = (String(name || '').match(/\.(\w+)(\?|$)/) || [])[1];
+  return TYPES[(ext || '').toLowerCase()] || 'application/octet-stream';
+}
+const safeName = (n) => String(n || 'document').replace(/[^\w.\- ()]+/g, '_').slice(0, 120);
+function docResponse(bytes, name, download) {
+  const type = sniff(bytes, name);
+  return new Response(bytes, { headers: {
+    'Content-Type': type,
+    'Content-Disposition': (download ? 'attachment' : 'inline') + '; filename="' + safeName(name) + '"',
+    'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff',
+  } });
+}
+/** An uploaded document (by file id). */
+export async function officeFile(env, request, id, download) {
+  const { db } = await requireStaff(env, request);
+  const f = await db.one('files?select=storage_path,original_name&id=eq.' + encodeURIComponent(id));
+  if (!f) throw new UserError('That document was not found.');
+  const res = await db.download(f.storage_path);
+  if (!res.ok) throw new UserError('The document could not be read from storage (' + res.status + ').');
+  return docResponse(await res.arrayBuffer(), f.original_name, download);
+}
+/** A document from the giving platform (its own storage), passed through so it can be viewed here. */
+export async function officeDocProxy(env, request, url, download) {
+  await requireStaff(env, request);
+  let u;
+  try { u = new URL(String(url || '')); } catch (e) { throw new UserError('That document link is not valid.'); }
+  if (u.protocol !== 'https:' || !/\.blob\.core\.windows\.net$/i.test(u.hostname)) throw new UserError('Only documents from the giving platform can be opened here.');
+  const res = await fetch(u.toString());
+  if (!res.ok) throw new UserError('The platform did not return the document (' + res.status + '). It may have been removed.');
+  const bytes = await res.arrayBuffer();
+  if (bytes.byteLength > 30 * 1024 * 1024) throw new UserError('The document is too large to show here; open it in a new tab.');
+  return docResponse(bytes, decodeURIComponent(u.pathname.split('/').pop() || 'document'), download);
 }

@@ -17,6 +17,8 @@
  * so the URL stays the same.
  *
  * Version 2 (12 Nov 2026): PDF copies of applications attached to emails, and PDFs for the Grants Office.
+ * Version 3 (17 Nov 2026): reads replies to grant emails for the Compliance inbox, and sends replies from it.
+ * Version 4 (18 Nov 2026): attaches ready-made PDFs as they are (individual applications in the paper-form design).
  */
 
 function doPost(e) {
@@ -33,6 +35,20 @@ function doPost(e) {
       return reply_({ ok: true, pdf: Utilities.base64Encode(pdf.getBytes()) });
     }
 
+    // Replies to grant emails, for the Compliance inbox. Returns messages not sent by you, newest first.
+    if (body.action === 'replies') return reply_({ ok: true, messages: replies_(body.query, body.since) });
+
+    // Reply in an existing Gmail conversation (from the Compliance inbox).
+    if (body.action === 'reply') {
+      var thread = GmailApp.getThreadById(String(body.threadId || ''));
+      if (!thread) return reply_({ ok: false, error: 'That conversation was not found in Gmail.' });
+      var ropts = { htmlBody: body.html, name: body.name || 'Toirem Grants' };
+      var ralias = props.getProperty('FROM_ALIAS');
+      if (ralias && GmailApp.getAliases().indexOf(ralias) !== -1) ropts.from = ralias;
+      thread.reply(plainText_(body.html), ropts);
+      return reply_({ ok: true });
+    }
+
     if (!body.to || !body.subject || !body.html) return reply_({ ok: false, error: 'Missing to, subject or html' });
 
     var options = {
@@ -40,8 +56,12 @@ function doPost(e) {
       name: body.name || 'Toirem Grants'
     };
     if (body.replyTo) options.replyTo = body.replyTo;
-    // Attachments arrive as HTML pages and are turned into PDFs here.
-    var files = (body.attachments || []).filter(function (a) { return a && a.html; }).map(function (a) { return toPdf_(a.html, a.name || 'document.pdf'); });
+    // Attachments arrive either as a ready-made PDF (a.pdf, base64), attached as it is,
+    // or as an HTML page (a.html), turned into a PDF here.
+    var files = (body.attachments || []).filter(function (a) { return a && (a.pdf || a.html); }).map(function (a) {
+      if (a.pdf) return Utilities.newBlob(Utilities.base64Decode(a.pdf), 'application/pdf', a.name || 'document.pdf');
+      return toPdf_(a.html, a.name || 'document.pdf');
+    });
     if (files.length) options.attachments = files;
 
     var alias = props.getProperty('FROM_ALIAS');
@@ -67,6 +87,29 @@ function testSend() {
     name: 'Toirem Grants'
   });
   Logger.log('Sent a test email to ' + me + '. Remaining daily quota: ' + MailApp.getRemainingDailyQuota());
+}
+
+/** Messages in matching conversations that you didn't send, received after `since` (milliseconds). */
+function replies_(query, since) {
+  var me = Session.getEffectiveUser().getEmail().toLowerCase();
+  var aliases = GmailApp.getAliases().map(function (a) { return a.toLowerCase(); });
+  var after = Number(since) || 0;
+  var out = [];
+  var threads = GmailApp.search(String(query || 'subject:"TG-" newer_than:30d'), 0, 60);
+  threads.forEach(function (t) {
+    t.getMessages().forEach(function (m) {
+      var from = m.getFrom(), addr = (from.match(/<([^>]+)>/) || [null, from])[1].trim().toLowerCase();
+      if (addr === me || aliases.indexOf(addr) !== -1) return;          // our own emails
+      if (m.getDate().getTime() <= after) return;
+      out.push({
+        id: m.getId(), threadId: t.getId(), from: from, subject: m.getSubject(), date: m.getDate().toISOString(),
+        body: String(m.getPlainBody() || '').slice(0, 8000),
+        attachments: m.getAttachments().map(function (a) { return { name: a.getName(), size: a.getSize() }; })
+      });
+    });
+  });
+  out.sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+  return out.slice(0, 100);
 }
 
 /** HTML page -> PDF file (Google does the conversion). */
